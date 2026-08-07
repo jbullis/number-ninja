@@ -7,12 +7,12 @@
   const C=window.NINJA_CURRICULUM;
   const PROFILE={controls:{homeGrade:'4',allowAboveGrade:true,audioInstructions:false,skillOverrides:{}},accountType:'student'};
   window.NINJA_PROFILE=PROFILE;
+  let signupMode=false;
 
   function gradeLabel(g){return g==='K'?'Kindergarten':'Grade '+g}
   function controls(){return PROFILE.controls||{homeGrade:'4',allowAboveGrade:true,skillOverrides:{}}}
   function dots(n,emoji){emoji=emoji||'●';return '<div style="font-size:30px;line-height:1.5;letter-spacing:5px;max-width:420px;margin:auto">'+Array.from({length:n},()=>emoji).join(' ')+'</div>'}
   function q(topic,html,ans,alts,tip){return {topic,qHTML:html,choices:numChoices(ans,alts||[]),tip:tip||'Take your time and use what you already know.'}}
-  function pickN(max,min){return ri(min==null?0:min,max)}
   function seqChoices(ans,spread){return numChoices(ans,[ans-1,ans+1,ans+(spread||2),Math.max(0,ans-(spread||2))])}
 
   function genSkill(id){
@@ -46,34 +46,41 @@
     }
   }
 
-  // Register skill generators so tutorials/fresh-question logic can safely revisit them.
   C.SKILLS.forEach(s=>{
     if(!GENS[s.id]) GENS[s.id]=()=>genSkill(s.id);
     if(!TOPICNAMES[s.id]) TOPICNAMES[s.id]=s.label;
     if(!TOPICCOLORS[s.id]) TOPICCOLORS[s.id]=['#ff5c8a','#ffb020','#22d3ee','#a78bfa','#4ade80','#60a5fa'][C.GRADE_INDEX[s.grade]||0];
   });
 
-  // Keep old Mega Mix from accidentally choosing the newly registered skill graph.
   const OLD_WORLD_IDS=['ops','machine','equation','fraction','factor','shape','multiply','angle','compare'];
   GENS.mix=(tier)=>GENS[pick(OLD_WORLD_IDS)](tier);
 
-  // Capture grade/parent-owned controls from login while preserving legacy student signup.
-  const oldCloudLogin=cloudLogin;
+  // Student login is now explicit: returning students cannot silently create an account.
+  // New students use register_student and must choose a home grade.
   cloudLogin=async function(name,pin){
     try{
       const gradeEl=document.getElementById('gradeInp');
-      const r=await apiPost({action:'login',name,pin,grade:gradeEl?gradeEl.value:'4'});
+      const payload=signupMode
+        ? {action:'register_student',name,pin,grade:gradeEl?gradeEl.value:'4'}
+        : {action:'report',name,pin};
+      const r=await apiPost(payload);
       if(r.data&&r.data.ok){
-        if(r.data.accountType==='parent') return {ok:false,error:'parent_account'};
         SYNC.name=name;SYNC.pin=pin;SYNC.online=true;applySave(r.data.data);
         PROFILE.accountType='student';PROFILE.controls=r.data.controls||PROFILE.controls;
-        return {ok:true,created:r.data.created};
+        return {ok:true,created:signupMode||!!r.data.created};
       }
-      return {ok:false,error:(r.data&&r.data.error)||'error',status:r.status};
-    }catch(e){return oldCloudLogin(name,pin)}
+      let err=(r.data&&r.data.error)||'error';
+      if(!signupMode&&err==='no_such_account') err='no_such_player';
+      return {ok:false,error:err,status:r.status};
+    }catch(e){
+      // Local/offline play is still available, but cloud account creation requires the server.
+      if(signupMode)return {ok:false,error:'offline_signup'};
+      SYNC.name=name;SYNC.pin=pin;SYNC.online=false;
+      return {ok:true,created:false,offline:true};
+    }
   };
 
-  // Grade-aware practice arena: show unlocked skill recommendations instead of one fixed difficulty ladder.
+  // Grade-aware practice arena.
   const oldBuildWorlds=buildWorlds;
   buildWorlds=function(){
     const g=document.getElementById('worldGrid'); if(!g)return;
@@ -90,7 +97,6 @@
     if(!rec.length) oldBuildWorlds();
   };
 
-  // Make the belt strip understand curriculum skill ids as well as legacy topics.
   beltPanelHTML=function(mastery,forKid){
     const topics=Object.keys(mastery||{}).filter(t=>(mastery[t]||0)>0);
     if(!topics.length)return '<div class="parEmpty">'+(forKid?'Answer questions to start earning belts! 🥋':'No belts earned yet.')+'</div>';
@@ -99,24 +105,58 @@
     return html+'<div class="beltKey">Belts show mastery of each skill, not grade level.</div>';
   };
 
-  // Inject grade choice for first-time standalone students.
+  // Phase 1 onboarding controls.
+  const loginCard=document.querySelector('#login .loginCard');
+  const nameField=document.getElementById('nameInp')&&document.getElementById('nameInp').closest('.field');
   const pinField=document.getElementById('pinInp')&&document.getElementById('pinInp').closest('.field');
-  if(pinField&&!document.getElementById('gradeInp')){
-    const f=document.createElement('div');f.className='field';f.innerHTML='<label for="gradeInp">Home grade (used when creating a new student)</label><select class="inp" id="gradeInp"><option value="K">Kindergarten</option><option value="1">Grade 1</option><option value="2">Grade 2</option><option value="3">Grade 3</option><option value="4" selected>Grade 4</option><option value="5">Grade 5</option></select>';
+  const loginNote=document.getElementById('loginNote');
+  const loginBtn=document.getElementById('btnLogin');
+  if(loginCard&&nameField&&!document.getElementById('accountRoleChooser')){
+    const style=document.createElement('style');
+    style.textContent='.nnRole{display:grid;grid-template-columns:1fr 1fr;gap:8px;width:100%;margin:8px 0 14px}.nnRole button,.nnMode button{border:1px solid #2c3577;background:#0d1340;border-radius:12px;padding:10px;color:#9aa3d8;font-weight:900}.nnRole button.on,.nnMode button.on{color:#f4f6ff;border-color:#ffb020;box-shadow:0 0 12px rgba(255,176,32,.22)}.nnMode{display:flex;gap:8px;width:100%;margin:0 0 10px}.nnMode button{flex:1;font-size:12px;padding:8px}.nnGradeNote{font-size:11px;color:#9aa3d8;font-weight:700;line-height:1.4;margin-top:4px}';
+    document.head.appendChild(style);
+    const role=document.createElement('div');role.id='accountRoleChooser';role.className='nnRole';role.innerHTML='<button type="button" class="on">🎮 Student</button><button type="button">👨‍👩‍👧 Parent</button>';
+    nameField.before(role);
+    role.children[1].onclick=()=>{location.href='/family.html'};
+
+    const mode=document.createElement('div');mode.id='studentModeChooser';mode.className='nnMode';mode.innerHTML='<button type="button" class="on">Returning Student</button><button type="button">Create Student</button>';
+    nameField.before(mode);
+
+    const f=document.createElement('div');f.className='field';f.id='gradeField';f.style.display='none';f.innerHTML='<label for="gradeInp">Home grade</label><select class="inp" id="gradeInp"><option value="K">Kindergarten</option><option value="1">Grade 1</option><option value="2">Grade 2</option><option value="3">Grade 3</option><option value="4" selected>Grade 4</option><option value="5">Grade 5</option></select><div class="nnGradeNote">This sets where Number Ninja starts. Progress can unlock individual skills above grade level as prerequisites are mastered.</div>';
     pinField.after(f);
+
+    function setSignup(on){
+      signupMode=on;mode.children[0].classList.toggle('on',!on);mode.children[1].classList.toggle('on',on);f.style.display=on?'':'none';
+      loginBtn.textContent=on?'🥷 CREATE & START':'⚡ LOG IN';
+      loginNote.textContent=on?'Choose a globally unique student username, a 4-digit PIN, and the student’s current grade.':'Returning student? Enter the same username and PIN used before.';
+      const err=document.getElementById('loginErr');if(err)err.classList.remove('on');
+    }
+    mode.children[0].onclick=()=>setSignup(false);
+    mode.children[1].onclick=()=>setSignup(true);
+    setSignup(false);
   }
 
-  // Parent controls now live only in the dedicated parent account dashboard.
   const oldParent=document.getElementById('btnParentMode');
-  if(oldParent){const b=oldParent.cloneNode(true);b.textContent='Parent account / family dashboard';b.onclick=()=>{location.href='/family.html'};oldParent.replaceWith(b)}
+  if(oldParent){const b=oldParent.cloneNode(true);b.textContent='👨‍👩‍👧 Parent account / family dashboard';b.onclick=()=>{location.href='/family.html'};oldParent.replaceWith(b)}
 
-  // Home-grade indicator.
   const profile=document.querySelector('.profile');
   if(profile&&!document.getElementById('homeGradeBadge')){const d=document.createElement('div');d.id='homeGradeBadge';d.style.cssText='font-size:11px;font-weight:900;color:#22d3ee;border:1px solid #2c3577;border-radius:999px;padding:5px 9px;white-space:nowrap';profile.appendChild(d)}
   const oldRenderHome=renderHome;
   renderHome=function(){oldRenderHome();const e=document.getElementById('homeGradeBadge');if(e)e.textContent=gradeLabel(controls().homeGrade||'4')};
 
-  // If Remember Me logged in before this script loaded, fetch controls and redraw.
+  // Improve Phase 1 login errors without rewriting the original screen.
+  const originalLoginClick=loginBtn&&loginBtn.onclick;
+  if(loginBtn){
+    loginBtn.onclick=async()=>{
+      await doLogin();
+      const err=document.getElementById('loginErr');
+      if(err&&err.classList.contains('on')){
+        if(err.textContent.includes('Could not sign in')&&signupMode)err.textContent='Could not create that student. The username may already be taken, or the connection may be unavailable.';
+        if(err.textContent.includes('Could not sign in')&&!signupMode)err.textContent='Could not find that student login. Check the username and PIN, or choose Create Student.';
+      }
+    };
+  }
+
   if(typeof S!=='undefined'&&S.name&&SYNC&&SYNC.online){
     apiPost({action:'report',name:SYNC.name,pin:SYNC.pin}).then(r=>{if(r.data&&r.data.ok){PROFILE.controls=r.data.controls||PROFILE.controls;buildWorlds();renderHome()}}).catch(()=>{});
   }
