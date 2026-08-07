@@ -12,7 +12,6 @@
 <body>
 <div class="wrap">
   <div class="top"><div><div class="brand">🥷 Parent Dojo</div><div class="sub">Manage linked Number Ninja students</div></div><a href="/" style="color:var(--cyan);font-weight:900;text-decoration:none">Student game →</a></div>
-
   <section id="authCard" class="card">
     <div class="sectionTitle">Parent account</div>
     <div class="muted">Parent and student accounts both use a globally unique username plus a 4-digit PIN. Parent controls are available only from a parent account.</div>
@@ -23,113 +22,42 @@
     <div class="actions"><button id="loginBtn" class="btn primary">Log in</button><button id="createParentBtn" class="btn ghost">Create parent account</button></div>
     <div id="authMsg" class="err"></div>
   </section>
-
   <main id="dashboard" class="hidden">
-    <section class="card">
-      <div class="row"><div><div class="sectionTitle" style="margin:0">Family dashboard</div><div class="status">Signed in as <b id="who"></b></div></div><button id="logoutBtn" class="btn ghost small">Log out</button></div>
-    </section>
-
+    <section class="card"><div class="row"><div><div class="sectionTitle" style="margin:0">Family dashboard</div><div class="status">Signed in as <b id="who"></b></div></div><button id="logoutBtn" class="btn ghost small">Log out</button></div></section>
     <section class="card">
       <div class="sectionTitle">Add a child</div>
       <div class="grid">
-        <div>
-          <b>Create a new student</b>
-          <div class="muted">Creates a globally unique child login already linked to this parent.</div>
-          <div class="field" style="margin-top:9px"><label>Student username</label><input id="newChildName" maxlength="20"></div>
-          <div class="field" style="margin-top:8px"><label>Student PIN</label><input id="newChildPin" maxlength="4" inputmode="numeric" type="password"></div>
-          <div class="field" style="margin-top:8px"><label>Home grade</label><select id="newChildGrade"><option value="K">Kindergarten</option><option value="1">Grade 1</option><option value="2">Grade 2</option><option value="3">Grade 3</option><option value="4" selected>Grade 4</option><option value="5">Grade 5</option></select></div>
-          <button id="createChildBtn" class="btn good" style="margin-top:10px">Create child</button>
-        </div>
-        <div>
-          <b>Link an existing student</b>
-          <div class="muted">The student keeps all existing progress. You need their current username and PIN.</div>
-          <div class="field" style="margin-top:9px"><label>Student username</label><input id="linkChildName" maxlength="20"></div>
-          <div class="field" style="margin-top:8px"><label>Current student PIN</label><input id="linkChildPin" maxlength="4" inputmode="numeric" type="password"></div>
-          <button id="linkChildBtn" class="btn good" style="margin-top:10px">Link student</button>
-        </div>
-      </div>
-      <div id="addMsg" class="ok"></div>
+        <div><b>Create a new student</b><div class="muted">Creates a globally unique child login already linked to this parent.</div><div class="field" style="margin-top:9px"><label>Student username</label><input id="newChildName" maxlength="20"></div><div class="field" style="margin-top:8px"><label>Student PIN</label><input id="newChildPin" maxlength="4" inputmode="numeric" type="password"></div><div class="field" style="margin-top:8px"><label>Home grade</label><select id="newChildGrade"><option value="K">Kindergarten</option><option value="1">Grade 1</option><option value="2">Grade 2</option><option value="3">Grade 3</option><option value="4" selected>Grade 4</option><option value="5">Grade 5</option></select></div><button id="createChildBtn" class="btn good" style="margin-top:10px">Create child</button></div>
+        <div><b>Link an existing student</b><div class="muted">The student keeps all existing progress. You need their current username and PIN.</div><div class="field" style="margin-top:9px"><label>Student username</label><input id="linkChildName" maxlength="20"></div><div class="field" style="margin-top:8px"><label>Current student PIN</label><input id="linkChildPin" maxlength="4" inputmode="numeric" type="password"></div><button id="linkChildBtn" class="btn good" style="margin-top:10px">Link student</button></div>
+      </div><div id="addMsg" class="ok"></div>
     </section>
-
-    <section class="card">
-      <div class="row"><div class="sectionTitle" style="margin:0">Linked children</div><button id="refreshBtn" class="btn ghost small">Refresh</button></div>
-      <div id="children" class="grid" style="margin-top:12px"></div>
-      <div id="childMsg" class="err"></div>
-    </section>
+    <section class="card"><div class="row"><div class="sectionTitle" style="margin:0">Linked children</div><button id="refreshBtn" class="btn ghost small">Refresh</button></div><div id="children" class="grid" style="margin-top:12px"></div><div id="childMsg" class="err"></div></section>
   </main>
 </div>
 <script>
-const $=id=>document.getElementById(id);
-const API='/api/player';
-let AUTH=null;
+const $=id=>document.getElementById(id),API='/api/player';let AUTH=null;
 const gradeLabel=g=>g==='K'?'Kindergarten':'Grade '+g;
 function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
-async function post(body){
-  const r=await fetch(API,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});
-  let j={}; try{j=await r.json()}catch(_){j={ok:false,error:'bad_server_response'}}
-  if(!r.ok || !j.ok) throw new Error(j.error||('http_'+r.status));
-  return j;
-}
-function friendly(e){
-  const m=String(e&&e.message||e);
-  return ({wrong_pin:'That PIN is not correct.',wrong_account_type:'That username is a student account, not a parent account.',name_taken:'That username is already taken.',student_already_linked:'That student is already linked to a parent.',wrong_child_pin:'The student PIN is not correct.',student_not_linked_to_parent:'That student is not linked to this parent.',no_such_student:'Student not found.',no_such_account:'Account not found.'})[m]||m.replaceAll('_',' ');
-}
+async function post(body){const r=await fetch(API,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});let j={};try{j=await r.json()}catch(_){j={ok:false,error:'bad_server_response'}}if(!r.ok||!j.ok)throw new Error(j.error||('http_'+r.status));return j;}
+function friendly(e){const m=String(e&&e.message||e);return({wrong_pin:'That PIN is not correct.',wrong_account_type:'That username is a student account, not a parent account.',name_taken:'That username is already taken.',student_already_linked:'That student is already linked to a parent.',wrong_child_pin:'The student PIN is not correct.',student_not_linked_to_parent:'That student is not linked to this parent.',no_such_student:'Student not found.',no_such_account:'Parent account not found.'})[m]||m.replaceAll('_',' ');}
 async function login(){
   $('authMsg').textContent='';
+  const name=$('pName').value.trim(),pin=$('pPin').value;
   try{
-    const j=await post({action:'login',name:$('pName').value,pin:$('pPin').value});
-    if(j.accountType!=='parent') throw new Error('wrong_account_type');
-    AUTH={name:$('pName').value.trim(),pin:$('pPin').value};
-    $('who').textContent=AUTH.name;$('authCard').classList.add('hidden');$('dashboard').classList.remove('hidden');
-    await loadChildren();
+    // list_children is intentionally used as the parent login check: unlike the legacy
+    // student login action, it never auto-creates a missing username.
+    const j=await post({action:'list_children',parentName:name,parentPin:pin});
+    AUTH={name,pin};$('who').textContent=AUTH.name;$('authCard').classList.add('hidden');$('dashboard').classList.remove('hidden');renderChildren(j.children||[]);
   }catch(e){$('authMsg').textContent=friendly(e)}
 }
-async function createParent(){
-  $('authMsg').textContent='';
-  try{
-    await post({action:'register_parent',name:$('pName').value,pin:$('pPin').value});
-    AUTH={name:$('pName').value.trim(),pin:$('pPin').value};$('who').textContent=AUTH.name;
-    $('authCard').classList.add('hidden');$('dashboard').classList.remove('hidden');await loadChildren();
-  }catch(e){$('authMsg').textContent=friendly(e)}
-}
+async function createParent(){$('authMsg').textContent='';try{await post({action:'register_parent',name:$('pName').value,pin:$('pPin').value});AUTH={name:$('pName').value.trim(),pin:$('pPin').value};$('who').textContent=AUTH.name;$('authCard').classList.add('hidden');$('dashboard').classList.remove('hidden');await loadChildren()}catch(e){$('authMsg').textContent=friendly(e)}}
 function parentBody(action,extra){return Object.assign({action,parentName:AUTH.name,parentPin:AUTH.pin},extra||{})}
-async function createChild(){
-  $('addMsg').textContent='';
-  try{await post(parentBody('create_child',{childName:$('newChildName').value,childPin:$('newChildPin').value,grade:$('newChildGrade').value}));$('addMsg').textContent='Child created and linked.';$('newChildName').value='';$('newChildPin').value='';await loadChildren();}catch(e){$('addMsg').textContent=friendly(e)}
-}
-async function linkChild(){
-  $('addMsg').textContent='';
-  try{await post(parentBody('link_child',{childName:$('linkChildName').value,childPin:$('linkChildPin').value}));$('addMsg').textContent='Existing student linked. Progress was preserved.';$('linkChildName').value='';$('linkChildPin').value='';await loadChildren();}catch(e){$('addMsg').textContent=friendly(e)}
-}
-async function loadChildren(){
-  $('childMsg').textContent='';
-  try{const j=await post(parentBody('list_children'));renderChildren(j.children||[])}catch(e){$('childMsg').textContent=friendly(e)}
-}
-function renderChildren(children){
-  $('children').innerHTML=children.length?'':'<div class="muted">No linked children yet.</div>';
-  children.forEach(c=>{
-    const el=document.createElement('div');el.className='child';
-    el.innerHTML=`<h3>${esc(c.username)}</h3><span class="pill">${esc(gradeLabel(c.homeGrade))}</span><span class="pill">Level ${Number(c.level||1)}</span><span class="pill">🪙 ${Number(c.coins||0)}</span><div class="actions"><button class="btn ghost settings">Settings</button><button class="btn ghost report">Progress</button></div><div class="detail hidden"></div>`;
-    const d=el.querySelector('.detail');
-    el.querySelector('.settings').onclick=()=>openSettings(c.username,d);
-    el.querySelector('.report').onclick=()=>openReport(c.username,d);
-    $('children').appendChild(el);
-  });
-}
-async function openSettings(childName,d){
-  try{
-    const j=await post(parentBody('parent_report',{childName})); const c=j.controls||{};
-    d.classList.remove('hidden');
-    d.innerHTML=`<div class="field"><label>Home grade</label><select class="grade">${['K','1','2','3','4','5'].map(g=>`<option value="${g}" ${String(c.homeGrade)===g?'selected':''}>${gradeLabel(g)}</option>`).join('')}</select></div><label class="toggle" style="margin-top:10px"><input class="above" type="checkbox" ${c.allowAboveGrade!==false?'checked':''}> Automatically unlock above-grade skills when prerequisites are mastered</label><label class="toggle" style="margin-top:8px"><input class="audio" type="checkbox" ${c.audioInstructions?'checked':''}> Spoken instructions</label><div class="actions"><button class="btn good save">Save settings</button><button class="btn ghost pin">Reset PIN</button><button class="btn ghost rename">Rename</button><button class="btn warn unlink">Unlink</button></div><div class="status msg"></div>`;
-    d.querySelector('.save').onclick=async()=>{try{await post(parentBody('update_child_controls',{childName,controls:{homeGrade:d.querySelector('.grade').value,allowAboveGrade:d.querySelector('.above').checked,audioInstructions:d.querySelector('.audio').checked}}));d.querySelector('.msg').textContent='Settings saved.';await loadChildren()}catch(e){d.querySelector('.msg').textContent=friendly(e)}};
-    d.querySelector('.pin').onclick=async()=>{const p=prompt('Enter a new 4-digit PIN for '+childName);if(p===null)return;try{await post(parentBody('reset_child_pin',{childName,newPin:p}));alert('PIN updated.')}catch(e){alert(friendly(e))}};
-    d.querySelector('.rename').onclick=async()=>{const n=prompt('New username for '+childName,childName);if(!n||n===childName)return;const p=prompt('Set the child PIN for the renamed login (4 digits).');if(p===null)return;try{await post(parentBody('rename_child',{childName,newName:n,newPin:p}));await loadChildren()}catch(e){alert(friendly(e))}};
-    d.querySelector('.unlink').onclick=async()=>{if(!confirm('Unlink '+childName+'? Their account and all progress will remain intact.'))return;try{await post(parentBody('unlink_child',{childName}));await loadChildren()}catch(e){alert(friendly(e))}};
-  }catch(e){d.classList.remove('hidden');d.textContent=friendly(e)}
-}
-async function openReport(childName,d){
-  try{const j=await post(parentBody('parent_report',{childName}));const data=j.data||{};const p=data.progress||{};const solved=p.solved?Object.keys(p.solved).length:0;d.classList.remove('hidden');d.innerHTML=`<b>Progress snapshot</b><div class="muted" style="margin-top:6px">Home grade: ${esc(gradeLabel(j.controls&&j.controls.homeGrade||'4'))}<br>Level: ${Number(data.level||1)} · Coins: ${Number(data.coins||0)} · Workbook problems solved: ${solved}<br>Placement: ${esc(j.controls&&j.controls.placement&&j.controls.placement.status||'not started')}</div>`}catch(e){d.classList.remove('hidden');d.textContent=friendly(e)}
-}
+async function createChild(){$('addMsg').textContent='';try{await post(parentBody('create_child',{childName:$('newChildName').value,childPin:$('newChildPin').value,grade:$('newChildGrade').value}));$('addMsg').textContent='Child created and linked.';$('newChildName').value='';$('newChildPin').value='';await loadChildren()}catch(e){$('addMsg').textContent=friendly(e)}}
+async function linkChild(){$('addMsg').textContent='';try{await post(parentBody('link_child',{childName:$('linkChildName').value,childPin:$('linkChildPin').value}));$('addMsg').textContent='Existing student linked. Progress was preserved.';$('linkChildName').value='';$('linkChildPin').value='';await loadChildren()}catch(e){$('addMsg').textContent=friendly(e)}}
+async function loadChildren(){$('childMsg').textContent='';try{const j=await post(parentBody('list_children'));renderChildren(j.children||[])}catch(e){$('childMsg').textContent=friendly(e)}}
+function renderChildren(children){$('children').innerHTML=children.length?'':'<div class="muted">No linked children yet.</div>';children.forEach(c=>{const el=document.createElement('div');el.className='child';el.innerHTML=`<h3>${esc(c.username)}</h3><span class="pill">${esc(gradeLabel(c.homeGrade))}</span><span class="pill">Level ${Number(c.level||1)}</span><span class="pill">🪙 ${Number(c.coins||0)}</span><div class="actions"><button class="btn ghost settings">Settings</button><button class="btn ghost report">Progress</button></div><div class="detail hidden"></div>`;const d=el.querySelector('.detail');el.querySelector('.settings').onclick=()=>openSettings(c.username,d);el.querySelector('.report').onclick=()=>openReport(c.username,d);$('children').appendChild(el)})}
+async function openSettings(childName,d){try{const j=await post(parentBody('parent_report',{childName})),c=j.controls||{};d.classList.remove('hidden');d.innerHTML=`<div class="field"><label>Home grade</label><select class="grade">${['K','1','2','3','4','5'].map(g=>`<option value="${g}" ${String(c.homeGrade)===g?'selected':''}>${gradeLabel(g)}</option>`).join('')}</select></div><label class="toggle" style="margin-top:10px"><input class="above" type="checkbox" ${c.allowAboveGrade!==false?'checked':''}> Automatically unlock above-grade skills when prerequisites are mastered</label><label class="toggle" style="margin-top:8px"><input class="audio" type="checkbox" ${c.audioInstructions?'checked':''}> Spoken instructions</label><div class="actions"><button class="btn good save">Save settings</button><button class="btn ghost pin">Reset PIN</button><button class="btn ghost rename">Rename</button><button class="btn warn unlink">Unlink</button></div><div class="status msg"></div>`;d.querySelector('.save').onclick=async()=>{try{await post(parentBody('update_child_controls',{childName,controls:{homeGrade:d.querySelector('.grade').value,allowAboveGrade:d.querySelector('.above').checked,audioInstructions:d.querySelector('.audio').checked}}));d.querySelector('.msg').textContent='Settings saved.';await loadChildren()}catch(e){d.querySelector('.msg').textContent=friendly(e)}};d.querySelector('.pin').onclick=async()=>{const p=prompt('Enter a new 4-digit PIN for '+childName);if(p===null)return;try{await post(parentBody('reset_child_pin',{childName,newPin:p}));alert('PIN updated.')}catch(e){alert(friendly(e))}};d.querySelector('.rename').onclick=async()=>{const n=prompt('New username for '+childName,childName);if(!n||n===childName)return;const p=prompt('Set the child PIN for the renamed login (4 digits).');if(p===null)return;try{await post(parentBody('rename_child',{childName,newName:n,newPin:p}));await loadChildren()}catch(e){alert(friendly(e))}};d.querySelector('.unlink').onclick=async()=>{if(!confirm('Unlink '+childName+'? Their account and all progress will remain intact.'))return;try{await post(parentBody('unlink_child',{childName}));await loadChildren()}catch(e){alert(friendly(e))}}}catch(e){d.classList.remove('hidden');d.textContent=friendly(e)}}
+async function openReport(childName,d){try{const j=await post(parentBody('parent_report',{childName})),data=j.data||{},p=data.progress||{},solved=p.solved?Object.keys(p.solved).length:0;d.classList.remove('hidden');d.innerHTML=`<b>Progress snapshot</b><div class="muted" style="margin-top:6px">Home grade: ${esc(gradeLabel(j.controls&&j.controls.homeGrade||'4'))}<br>Level: ${Number(data.level||1)} · Coins: ${Number(data.coins||0)} · Workbook problems solved: ${solved}<br>Placement: ${esc(j.controls&&j.controls.placement&&j.controls.placement.status||'not started')}</div>`}catch(e){d.classList.remove('hidden');d.textContent=friendly(e)}}
 $('loginBtn').onclick=login;$('createParentBtn').onclick=createParent;$('createChildBtn').onclick=createChild;$('linkChildBtn').onclick=linkChild;$('refreshBtn').onclick=loadChildren;$('logoutBtn').onclick=()=>{AUTH=null;$('dashboard').classList.add('hidden');$('authCard').classList.remove('hidden');$('pPin').value=''};
 </script>
 </body>
