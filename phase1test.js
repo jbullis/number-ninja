@@ -1,22 +1,22 @@
 const { webcrypto }=require('crypto'); if(!global.crypto) global.crypto=webcrypto;
-const player=require('./functions/api/player.js');
-const parentLogin=require('./functions/api/parent-login.js');
+const player=require('./lib/number-ninja-api.js');
+const parentLogin=require('./lib/number-ninja-api.js');
 const fs=require('fs');
 
 const KV={
   store:new Map(),
   async get(k){return this.store.has(k)?this.store.get(k):null},
-  async put(k,v){this.store.set(k,v)},
+  async set(k,v){this.store.set(k,v)},
   async delete(k){this.store.delete(k)}
 };
 let fails=0;
 function ck(v,m,x){if(!v){fails++;console.error('FAIL:',m,x||'')}}
 async function pcall(body){
-  const r=await player.onRequestPost({request:{json:async()=>body},env:{NINJA_KV:KV}});
+  const r=await player.playerPost({json:async()=>body},{store:KV});
   return {status:r.status,body:await r.json()};
 }
 async function parentCall(body){
-  const r=await parentLogin.onRequestPost({request:{json:async()=>body},env:{NINJA_KV:KV}});
+  const r=await parentLogin.parentLoginPost({json:async()=>body},{store:KV});
   return {status:r.status,body:await r.json()};
 }
 

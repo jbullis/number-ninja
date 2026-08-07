@@ -1,6 +1,6 @@
-// Node test for functions/api/admin.js — mock KV, assert the stats math + auth.
+// Node test for shared admin API logic: mock store, assert the stats math + auth.
 const { webcrypto } = require('crypto'); if (!global.crypto) global.crypto = webcrypto;
-const admin = require('./functions/api/admin.js');
+const admin = require('./lib/admin-api.js');
 
 const DAY = 86400000, now = Date.now();
 // mock KV populated with a known mix of players
@@ -11,9 +11,9 @@ put('player:nova', { created: now - 3*DAY,  updated: now - 3*DAY,  data: { level
 put('player:old',  { created: now - 200*DAY, updated: now - 90*DAY, data: { level: 6, coins: 900, progress: { solved: { a:1, b:1 } } } });
 put('player:ghost',{ created: now - 2*DAY,  updated: now - 2*DAY,  data: null });   // claimed, never saved
 const KV = {
-  async list({ prefix, cursor }) {
-    const keys = [...store.keys()].filter(k => k.startsWith(prefix)).map(name => ({ name }));
-    return { keys, list_complete: true, cursor: undefined };
+  async list(prefix, cursor) {
+    const keys = [...store.keys()].filter(k => k.startsWith(prefix));
+    return { keys, complete: true, cursor: '0' };
   },
   async get(k) { return store.has(k) ? store.get(k) : null; },
 };
@@ -27,15 +27,15 @@ function req(headers, url) {
 
 (async () => {
   // no token configured -> fails closed
-  let r = await admin.onRequestGet({ ...req({}), env: { NINJA_KV: KV } });
+  let r = await admin.adminGet(req({}).request, { store: KV });
   ck(r.status === 503, 'no ADMIN_TOKEN -> 503');
 
   // wrong token -> 401
-  r = await admin.onRequestGet({ ...req({ 'x-admin-token': 'nope' }), env: { NINJA_KV: KV, ADMIN_TOKEN: 'secret' } });
+  r = await admin.adminGet(req({ 'x-admin-token': 'nope' }).request, { store: KV, ADMIN_TOKEN: 'secret' });
   ck(r.status === 401, 'wrong token -> 401');
 
   // right token via header -> stats
-  r = await admin.onRequestGet({ ...req({ 'x-admin-token': 'secret' }), env: { NINJA_KV: KV, ADMIN_TOKEN: 'secret' } });
+  r = await admin.adminGet(req({ 'x-admin-token': 'secret' }).request, { store: KV, ADMIN_TOKEN: 'secret' });
   ck(r.status === 200, 'right token -> 200');
   const j = JSON.parse(await r.text());
   ck(j.total === 4, 'total = 4', j.total);
@@ -50,7 +50,7 @@ function req(headers, url) {
   ck(j.roster.every(p => p.name.indexOf('player:') === -1), 'roster strips player: prefix');
 
   // token via query string also works
-  r = await admin.onRequestGet({ ...req({}, 'https://x/api/admin?token=secret'), env: { NINJA_KV: KV, ADMIN_TOKEN: 'secret' } });
+  r = await admin.adminGet(req({}, 'https://x/api/admin?token=secret').request, { store: KV, ADMIN_TOKEN: 'secret' });
   ck(r.status === 200, 'query-string token works');
 
   console.log(fails === 0 ? 'ALL ADMIN TESTS PASSED' : fails + ' FAILURES');

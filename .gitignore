@@ -7,6 +7,10 @@ package-lock.json
 .dev.vars
 *.log
 
+# vercel local state
+.vercel/
+.env.local
+
 # test artifacts (screenshots the e2e run drops)
 x*.png
 *-shot.png

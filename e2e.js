@@ -1,14 +1,14 @@
 const { chromium }=require('playwright');
 const http=require('http'); const fs=require('fs'); const path=require('path');
 const { webcrypto }=require('crypto'); if(!global.crypto) global.crypto=webcrypto;
-const fn=require('./functions/api/player.js');
-const KV={ store:new Map(), async get(k){ return this.store.has(k)?this.store.get(k):null; }, async put(k,v){ this.store.set(k,v); } };
+const fn=require('./lib/number-ninja-api.js');
+const KV={ store:new Map(), async get(k){ return this.store.has(k)?this.store.get(k):null; }, async set(k,v){ this.store.set(k,v); } };
 const MIME={'.html':'text/html','.json':'application/json','.jpg':'image/jpeg','.png':'image/png','.gif':'image/gif','.txt':'text/plain'};
 http.createServer(async (req,res)=>{
   const url=req.url.split('?')[0];
   if(url.startsWith('/api/player') && req.method==='POST'){
     let body=''; req.on('data',c=>body+=c); req.on('end', async ()=>{
-      const r=await fn.onRequestPost({ request:{json:async()=>JSON.parse(body||'{}')}, env:{NINJA_KV:KV} });
+      const r=await fn.playerPost({json:async()=>JSON.parse(body||'{}')},{store:KV});
       res.writeHead(r.status,{'content-type':'application/json'}); res.end(await r.text());
     }); return;
   }

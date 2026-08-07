@@ -1,16 +1,16 @@
 const { webcrypto }=require('crypto'); if(!global.crypto) global.crypto=webcrypto;
-const api=require('./functions/api/player.js');
+const api=require('./lib/number-ninja-api.js');
 
 const KV={
   store:new Map(),
   async get(k){return this.store.has(k)?this.store.get(k):null},
-  async put(k,v){this.store.set(k,v)},
+  async set(k,v){this.store.set(k,v)},
   async delete(k){this.store.delete(k)}
 };
 let fails=0;
 function ck(v,m,x){if(!v){fails++;console.error('FAIL:',m,x||'')}}
 async function call(body){
-  const r=await api.onRequestPost({request:{json:async()=>body},env:{NINJA_KV:KV}});
+  const r=await api.playerPost({json:async()=>body},{store:KV});
   return {status:r.status,body:await r.json()};
 }
 

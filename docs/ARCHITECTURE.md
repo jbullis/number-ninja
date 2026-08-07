@@ -5,12 +5,12 @@ JavaScript. This document maps the pieces so a new reader can find things fast.
 
 ## Big picture
 
-    browser (index.html)  ──POST /api/player──▶  Pages Function ──▶  KV (per-player record)
+    browser (index.html)  ──POST /api/player──▶  Vercel Function ──▶  Upstash Redis
             │
-            └── /api/admin (token-gated stats) ──▶  same KV, read-only
+            └── /api/admin (token-gated stats) ──▶  same Redis database, read-only
 
 There is no client framework and no build. State lives in a single `S` object in
-memory, is serialized to KV on save, and is restored on login.
+memory, is serialized to Redis on save, and is restored on login.
 
 ## Question generators
 
@@ -88,7 +88,7 @@ A self-contained Canvas 2D dot-muncher (`FP` object, `fp*` functions) bought as 
 power-up. Pure arcade, no math. Lattice maze with guaranteed connectivity, greedy
 ghosts, lives, score, D-pad and arrow keys.
 
-## Save server (functions/api/player.js)
+## Save server (api/player.js)
 
 POST actions:
 
@@ -98,7 +98,7 @@ POST actions:
 
 PINs are salted and SHA-256 hashed; compares are constant-time-ish.
 
-## Admin (functions/api/admin.js + admin.html)
+## Admin (api/admin.js + admin.html)
 
 `GET /api/admin` walks every `player:` key, reads each record, and returns totals
 (claimed, active, active in 7/30 days, new in 7/30 days, problems solved, max level)
@@ -109,8 +109,8 @@ is not set. `admin.html` is the dashboard that calls it.
 
 - `wbtest.js`: evaluates the PURE block, checks generator structure across tiers,
   recomputes tier-4 and workbook answers, and validates BOOKS coverage.
-- `admintest.js`: mock KV, asserts the stats math and the auth (fails closed, 401 on
+- `admintest.js`: mock store, asserts the stats math and the auth (fails closed, 401 on
   wrong token, works via header or query).
-- `e2e.js`: Playwright against a mock KV save server. Covers login, save/resume,
+- `e2e.js`: Playwright against a mock save server. Covers login, save/resume,
   shop, power-up charges, tutorials, need-help capture, the parent report, the
   battle mechanics (shield, charge, rage, boss arena), and the Free Play minigame.
