@@ -52,14 +52,73 @@ Add `ADMIN_TOKEN` only if you want `/admin.html` and `/api/admin` enabled. The a
 
 Never commit real values. `.env.example` contains names only.
 
-## 4. Deploy `feature-k5-expansion` As Preview
+## 4. Migrate Existing Cloudflare KV Data
+
+Before switching production traffic to Vercel, copy the existing Cloudflare KV
+player records into Upstash Redis. This step is copy-only: it does not delete,
+rewrite, migrate, or disable anything in Cloudflare.
+
+Required Cloudflare environment variables for the migration script:
+
+```text
+CLOUDFLARE_ACCOUNT_ID
+CLOUDFLARE_KV_NAMESPACE_ID
+CLOUDFLARE_API_TOKEN
+```
+
+The Cloudflare API token should have read access to the existing KV namespace.
+
+Required Upstash destination environment variables:
+
+```text
+UPSTASH_REDIS_REST_URL
+UPSTASH_REDIS_REST_TOKEN
+```
+
+Dry-run first:
+
+```bash
+node scripts/migrate-cloudflare-kv-to-upstash.js --dry-run
+```
+
+Dry-run lists `player:*` records, compares destination values, and reports what
+would be copied. It performs no Upstash writes.
+
+Run the actual copy only after the dry-run is clean:
+
+```bash
+node scripts/migrate-cloudflare-kv-to-upstash.js
+```
+
+The script copies only keys that are missing in Upstash. It skips records that are
+already byte-for-byte identical. If a destination key exists but differs, the
+script reports a conflict and does not overwrite it.
+
+Use the final summary to verify:
+
+- `total Cloudflare player keys found` matches the expected Cloudflare player count.
+- `records copied + records already identical + conflicts + failures` accounts for every found key.
+- `conflicts` is `0` before production cutover.
+- `failures` is `0` before production cutover.
+
+If conflicts are reported, inspect each key manually. Do not overwrite Upstash
+blindly, because a differing value may represent newer Vercel test data or a
+manual data issue. Resolve conflicts with an explicit per-record decision, then
+rerun the migration.
+
+Keep the Cloudflare production deployment and KV namespace untouched until the
+Vercel Preview has been verified with migrated data. Do not delete the Cloudflare
+KV namespace, do not remove production Cloudflare bindings, and do not disable the
+existing Cloudflare deployment as part of this migration.
+
+## 5. Deploy `feature-k5-expansion` As Preview
 
 1. In GitHub, push the `feature-k5-expansion` branch.
 2. In Vercel, ensure Git integration is enabled for preview deployments.
 3. Vercel should create a Preview Deployment for that branch automatically.
 4. Do not merge into `main` and do not change the production branch.
 
-## 5. Verify The Preview
+## 6. Verify The Preview
 
 Open the Preview Deployment URL and check:
 
@@ -77,7 +136,7 @@ Open the Preview Deployment URL and check:
 7. Create or link a child, update grade controls, reset a child PIN, rename a child, unlink a child, and confirm child progress remains.
 8. If `ADMIN_TOKEN` is set, open `/admin.html`, enter the token, and confirm stats load.
 
-## 6. Confirm No Paid Features Are Enabled
+## 7. Confirm No Paid Features Are Enabled
 
 Before using the deployment broadly:
 
