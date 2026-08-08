@@ -163,7 +163,17 @@ async function openSettings(childName,d){
   }catch(e){d.classList.remove('hidden');d.textContent=friendly(e)}
 }
 async function openReport(childName,d){
-  try{const j=await post(parentBody('parent_report',{childName}));const data=j.data||{};const p=data.progress||{};const solved=p.solved?Object.keys(p.solved).length:0;const ms=j.masterySummary||{};const by=ms.bySkill||{};const certified=Object.keys(by).filter(id=>by[id]&&by[id].certified);const needs=Object.keys(by).filter(id=>by[id]&&by[id].certified&&by[id].needsReview);const ready=(ms.eligibleChallenges||[]).map(x=>x.skillId);resetIdle();d.classList.remove('hidden');let html=`<b>Progress snapshot</b><div class="muted" style="margin-top:6px">Home grade: ${esc(gradeLabel(j.controls&&j.controls.homeGrade||'4'))}<br>Level: ${Number(data.level||1)} · Coins: ${Number(data.coins||0)} · Workbook problems solved: ${solved}<br>Placement: ${esc(j.controls&&j.controls.placement&&j.controls.placement.status||'not started')}</div>`;html+=`<div class="detail" style="display:block"><b>Mastery</b><div class="muted" style="margin-top:6px">Certified Black Belts: ${certified.length?certified.map(id=>esc(skillLabel(id))).join(', '):'None yet'}<br>Challenge ready: ${ready.length?ready.map(id=>esc(skillLabel(id))).join(', '):'None right now'}<br>Needs Review: ${needs.length?needs.map(id=>esc(skillLabel(id))).join(', '):'None'}</div></div>`;d.innerHTML=html}catch(e){d.classList.remove('hidden');d.textContent=friendly(e)}
+  try{
+    const j=await post(parentBody('parent_report',{childName}));
+    const data=j.data||{},p=data.progress||{},solved=p.solved?Object.keys(p.solved).length:0,ms=j.masterySummary||{},by=ms.bySkill||{};
+    const certified=Object.keys(by).filter(id=>by[id]&&by[id].certified),needs=Object.keys(by).filter(id=>by[id]&&by[id].certified&&by[id].needsReview),ready=(ms.eligibleChallenges||[]).map(x=>x.skillId);
+    const plan=j.learningPlan||j.controls&&j.controls.learningPlan||{},active=(plan.items||[]).filter(x=>x.status==='active'),recent=(plan.items||[]).filter(x=>x.status!=='active').slice(-3);
+    resetIdle();d.classList.remove('hidden');
+    let html=`<b>Progress snapshot</b><div class="muted" style="margin-top:6px">Home grade: ${esc(gradeLabel(j.controls&&j.controls.homeGrade||'4'))}<br>Level: ${Number(data.level||1)} · Coins: ${Number(data.coins||0)} · Workbook problems solved: ${solved}<br>Placement: ${esc(j.controls&&j.controls.placement&&j.controls.placement.status||'not started')}</div>`;
+    html+=`<div class="detail" style="display:block"><b>Mastery</b><div class="muted" style="margin-top:6px">Certified Black Belts: ${certified.length?certified.map(id=>esc(skillLabel(id))).join(', '):'None yet'}<br>Challenge ready: ${ready.length?ready.map(id=>esc(skillLabel(id))).join(', '):'None right now'}<br>Needs Review: ${needs.length?needs.map(id=>esc(skillLabel(id))).join(', '):'None'}</div></div>`;
+    html+=`<div class="detail" style="display:block"><b>Learning Plan</b><div class="muted" style="margin-top:6px">${active.length?active.map(x=>`${x.type==='enrichment'?'Advanced training':'Training focus'}: ${esc(x.skillLabel||skillLabel(x.skillId))}<br>${esc(x.reasonText||'')}`).join('<br>'):'No active system plan items.'}${recent.length?'<br>Recently resolved: '+recent.map(x=>esc(x.skillLabel||skillLabel(x.skillId))).join(', '):''}</div></div>`;
+    d.innerHTML=html;
+  }catch(e){d.classList.remove('hidden');d.textContent=friendly(e)}
 }
 const openReportBase=openReport;
 openReport=async function(childName,d){

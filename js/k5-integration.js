@@ -9,18 +9,19 @@
   const M=window.NINJA_MASTERY;
   const D=window.NINJA_DAILY;
   const A=window.NINJA_ASSIGNMENTS;
+  const LP=window.NINJA_LEARNING_PLAN;
   const R=window.NINJA_RECOMMENDATIONS;
   const PROFILE={controls:{homeGrade:'4',allowAboveGrade:true,audioInstructions:false,skillOverrides:{}},accountType:'student'};
   window.NINJA_PROFILE=PROFILE;
   let signupMode=false;
-  let DAILY_STATUS=null, DAILY_RECS=null, ASSIGNMENTS=[], lastActiveAt=Date.now(), lastHeartbeatAt=Date.now();
+  let DAILY_STATUS=null, DAILY_RECS=null, ASSIGNMENTS=[], LEARNING_PLAN=null, lastActiveAt=Date.now(), lastHeartbeatAt=Date.now();
 
   function gradeLabel(g){return g==='K'?'Kindergarten':'Grade '+g}
   function controls(){return PROFILE.controls||{homeGrade:'4',allowAboveGrade:true,skillOverrides:{}}}
   function masterySummary(){return M?M.summary({progress:S.progress},controls()):{eligibleChallenges:[],dueReviews:[],bySkill:{}}}
   function localDate(){const d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')}
   function eventId(kind){return kind+'-'+Date.now()+'-'+Math.random().toString(36).slice(2,8)}
-  function mergeDaily(r){if(r&&r.data&&r.data.ok){if(r.data.controls)PROFILE.controls=r.data.controls;if(r.data.dailyStatus)DAILY_STATUS=r.data.dailyStatus;if(r.data.recommendations)DAILY_RECS=r.data.recommendations;if(r.data.assignments)ASSIGNMENTS=r.data.assignments;}}
+  function mergeDaily(r){if(r&&r.data&&r.data.ok){if(r.data.controls)PROFILE.controls=r.data.controls;if(r.data.dailyStatus)DAILY_STATUS=r.data.dailyStatus;if(r.data.recommendations)DAILY_RECS=r.data.recommendations;if(r.data.assignments)ASSIGNMENTS=r.data.assignments;if(r.data.learningPlan)LEARNING_PLAN=r.data.learningPlan;}}
   function dots(n,emoji){emoji=emoji||'●';return '<div style="font-size:30px;line-height:1.5;letter-spacing:5px;max-width:420px;margin:auto">'+Array.from({length:n},()=>emoji).join(' ')+'</div>'}
   function q(topic,html,ans,alts,tip){return {topic,qHTML:html,choices:numChoices(ans,alts||[]),tip:tip||'Take your time and use what you already know.'}}
   function seqChoices(ans,spread){return numChoices(ans,[ans-1,ans+1,ans+(spread||2),Math.max(0,ans-(spread||2))])}
@@ -301,7 +302,7 @@
       if(r.data&&r.data.ok){
         SYNC.name=name;SYNC.pin=pin;SYNC.online=true;applySave(r.data.data);
         PROFILE.accountType='student';PROFILE.controls=r.data.controls||PROFILE.controls;
-        DAILY_STATUS=r.data.dailyStatus||DAILY_STATUS;DAILY_RECS=r.data.recommendations||DAILY_RECS;ASSIGNMENTS=r.data.assignments||ASSIGNMENTS;
+        DAILY_STATUS=r.data.dailyStatus||DAILY_STATUS;DAILY_RECS=r.data.recommendations||DAILY_RECS;ASSIGNMENTS=r.data.assignments||ASSIGNMENTS;LEARNING_PLAN=r.data.learningPlan||LEARNING_PLAN;
         return {ok:true,created:signupMode||!!r.data.created};
       }
       let err=(r.data&&r.data.error)||'error';
@@ -330,11 +331,16 @@
     const status=st.vacation?'Streak paused for vacation':(!st.scheduled?'No goal scheduled today':(prog.completed?'Goal complete':'Keep going'));
     const primary=recs&&recs.primary, assignment=primary&&primary.type==='parent_assignment'&&primary.assignment?primary.assignment:(ASSIGNMENTS&&ASSIGNMENTS[0]);
     const assignmentHtml=assignment?'<div class="callout" style="margin-top:8px"><b>Parent Assignment:</b> '+assignment.title+'<br><span class="muted">'+assignmentProgressText(assignment)+(assignment.minimumAccuracy?' · Goal: '+assignment.minimumAccuracy+'% accuracy':'')+' · Reward: '+Number(assignment.reward&&assignment.reward.coins||0)+' coins</span><div class="plcActions" style="margin-top:8px"><button class="plcBtn good" id="startAssignmentBtn">Start / Continue</button></div></div>':'';
+    const planItems=(LEARNING_PLAN&&LEARNING_PLAN.items||[]).filter(x=>x.status==='active');
+    const planItem=(primary&&(primary.type==='persistent_remediation'||primary.type==='persistent_enrichment')&&primary.planItem)?primary.planItem:planItems[0];
+    const planSkill=planItem&&C&&C.BY_ID[planItem.skillId];
+    const planHtml=(!assignment&&planItem&&planSkill)?'<div class="callout" style="margin-top:8px"><b>'+(planItem.type==='enrichment'?'Ready for a Challenge':'Ninja Training Focus')+':</b> '+planSkill.label+'<br><span class="muted">'+(planItem.reasonText||'Practice this next!')+'</span><div class="plcActions" style="margin-top:8px"><button class="plcBtn good" id="startPlanBtn">Start</button></div></div>':'';
     panel.innerHTML='<div class="rank">Today&apos;s Goal</div><div class="lvlline">'+label+' - '+status+'</div><div class="xpTrack"><div class="xpFill" style="width:'+pct+'%"></div></div>'+
       '<div class="lvlline">Streak: '+Number(streak.currentStreak||0)+' day'+(Number(streak.currentStreak||0)===1?'':'s')+' · Grace days: '+Number(streak.graceBalance||0)+'</div>'+
-      assignmentHtml+
-      (primary&&!assignment?'<div class="callout" style="margin-top:8px"><b>'+primary.badge+':</b> '+primary.skillLabel+'<br><span class="muted">'+primary.reason+'</span></div>':'');
+      assignmentHtml+planHtml+
+      (primary&&!assignment&&!planHtml?'<div class="callout" style="margin-top:8px"><b>'+primary.badge+':</b> '+primary.skillLabel+'<br><span class="muted">'+primary.reason+'</span></div>':'');
     const btn=document.getElementById('startAssignmentBtn');if(btn&&assignment)btn.onclick=()=>startAssignment(assignment.id);
+    const pbtn=document.getElementById('startPlanBtn');if(pbtn&&planSkill)pbtn.onclick=()=>{sClick();startRun({id:planSkill.id,name:planSkill.label,gen:()=>genSkill(planSkill.id),color:TOPICCOLORS[planSkill.id]})};
   }
   buildWorlds=function(){
     const g=document.getElementById('worldGrid'); if(!g)return;
@@ -440,6 +446,6 @@
   }
 
   if(typeof S!=='undefined'&&S.name&&SYNC&&SYNC.online){
-    apiPost({action:'report',name:SYNC.name,pin:SYNC.pin,localDate:localDate()}).then(r=>{if(r.data&&r.data.ok){PROFILE.controls=r.data.controls||PROFILE.controls;DAILY_STATUS=r.data.dailyStatus||DAILY_STATUS;DAILY_RECS=r.data.recommendations||DAILY_RECS;ASSIGNMENTS=r.data.assignments||ASSIGNMENTS;buildWorlds();renderHome()}}).catch(()=>{});
+    apiPost({action:'report',name:SYNC.name,pin:SYNC.pin,localDate:localDate()}).then(r=>{if(r.data&&r.data.ok){PROFILE.controls=r.data.controls||PROFILE.controls;DAILY_STATUS=r.data.dailyStatus||DAILY_STATUS;DAILY_RECS=r.data.recommendations||DAILY_RECS;ASSIGNMENTS=r.data.assignments||ASSIGNMENTS;LEARNING_PLAN=r.data.learningPlan||LEARNING_PLAN;buildWorlds();renderHome()}}).catch(()=>{});
   }
 })();

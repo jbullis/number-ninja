@@ -6,7 +6,8 @@
   const C = (typeof module !== "undefined" && module.exports) ? require("./curriculum.js") : root.NINJA_CURRICULUM;
   const Mastery = (typeof module !== "undefined" && module.exports) ? require("./mastery.js") : root.NINJA_MASTERY;
   const Assignments = (typeof module !== "undefined" && module.exports) ? require("./assignments.js") : root.NINJA_ASSIGNMENTS;
-  const PRIORITY = { parent_assignment:0, needs_review:1, weak_prerequisite:20, challenge_ready:30, home_progression:40, enrichment:50 };
+  const LearningPlan = (typeof module !== "undefined" && module.exports) ? require("./learning-plan.js") : root.NINJA_LEARNING_PLAN;
+  const PRIORITY = { parent_assignment:0, needs_review:1, persistent_remediation:20, weak_prerequisite:22, challenge_ready:30, home_progression:40, persistent_enrichment:50, enrichment:60 };
 
   function progressFor(data){ return data && data.progress || {}; }
   function masteryMap(data){ return progressFor(data).mastery || {}; }
@@ -37,6 +38,23 @@
           assignment:a,
         };
       });
+  }
+  function planRecommendations(controls){
+    if(!LearningPlan) return [];
+    return LearningPlan.activeItems(controls && controls.learningPlan).map((item, i) => {
+      const skill = C.BY_ID[item.skillId];
+      if(!skill) return null;
+      return {
+        skillId:item.skillId,
+        skillLabel:skill.label,
+        grade:skill.grade,
+        type:item.type === "enrichment" ? "persistent_enrichment" : "persistent_remediation",
+        reason:item.reasonText || (item.type === "enrichment" ? "You've shown you're ready to try a harder skill." : "A little more practice here will make the next skill easier."),
+        priority:(item.type === "enrichment" ? PRIORITY.persistent_enrichment : PRIORITY.persistent_remediation) + i / 100,
+        badge:item.type === "enrichment" ? "Advanced Training" : "Ninja Training Focus",
+        planItem:item,
+      };
+    }).filter(Boolean);
   }
   function missingPrereqRecommendations(data, controls){
     const mastery = masteryMap(data), homeGrade = controls.homeGrade || "4";
@@ -91,7 +109,10 @@
       }
     });
 
-    missingPrereqRecommendations(data, controls).forEach(r => out.push(r));
+    const planRecs = planRecommendations(controls);
+    const planRemediationSkills = new Set(planRecs.filter(r => r.type === "persistent_remediation").map(r => r.skillId));
+    planRecs.filter(r => r.type === "persistent_remediation").forEach(r => out.push(r));
+    missingPrereqRecommendations(data, controls).filter(r => !planRemediationSkills.has(r.skillId)).forEach(r => out.push(r));
 
     if(Mastery) {
       Mastery.eligibleChallenges(data, controls, 6).forEach(item => {
@@ -101,6 +122,7 @@
     }
 
     const placement = placementBoosts(controls);
+    const dynamicEnrichment = [];
     C.unlockedSkills(mastery, controls.skillOverrides || {}, controls).forEach(s => {
       const st = bySkill[s.id] || {};
       if(st.certified && !(st.needsReview || (st.reviewDueAt && st.reviewDueAt <= t))) return;
@@ -110,12 +132,15 @@
       const above = C.GRADE_INDEX[s.grade] > homeIdx;
       if(!above && C.GRADE_INDEX[s.grade] < Math.max(0, homeIdx - 1) && m <= 0 && ev.attempts <= 0) return;
       if(above && controls.allowAboveGrade === false && !(controls.skillOverrides || {})[s.id]) return;
-      if(above) out.push(rec(s, "enrichment", placement[s.id] || "Optional advanced practice is ready when you want a stretch.", 50 + m / 100, "Enrichment"));
+      if(above) dynamicEnrichment.push(rec(s, "enrichment", placement[s.id] || "Optional advanced practice is ready when you want a stretch.", PRIORITY.enrichment + m / 100, "Enrichment"));
       else {
         const gradeDistance = Math.abs(C.GRADE_INDEX[s.grade] - homeIdx);
-        out.push(rec(s, "home_progression", placement[s.id] || "This is a strong next step for your current path.", 40 + gradeDistance * 2 + m / 100, m >= 70 ? "Ready to Level Up" : "Recommended Practice"));
+        out.push(rec(s, "home_progression", placement[s.id] || "This is a strong next step for your current path.", PRIORITY.home_progression + gradeDistance * 2 + m / 100, m >= 70 ? "Ready to Level Up" : "Recommended Practice"));
       }
     });
+    planRecs.filter(r => r.type === "persistent_enrichment").forEach(r => out.push(r));
+    const planEnrichmentSkills = new Set(planRecs.filter(r => r.type === "persistent_enrichment").map(r => r.skillId));
+    dynamicEnrichment.filter(r => !planEnrichmentSkills.has(r.skillId)).forEach(r => out.push(r));
 
     const seen = new Set();
     return out
@@ -133,7 +158,7 @@
     return {primary:list[0] || null, alternates:list.slice(1,4), recommendations:list};
   }
 
-  const api = { PRIORITY, buildRecommendations, primaryAndAlternates, missingPrereqRecommendations };
+  const api = { PRIORITY, buildRecommendations, primaryAndAlternates, missingPrereqRecommendations, planRecommendations };
   if(typeof module !== "undefined" && module.exports) module.exports = api;
   root.NINJA_RECOMMENDATIONS = api;
 })(typeof globalThis !== "undefined" ? globalThis : this);

@@ -294,15 +294,15 @@
       rewardCoins:Number(o.rewardCoins || 0),
     };
   }
-  function completionReady(a){
-    const p = assignmentProgressSummary(a);
+  function completionReady(a, progress){
+    const p = progress || assignmentProgressSummary(a, a.occurrences && a.occurrences.current && a.occurrences.current.date);
     if(a.targetType === "minutes") return p.value >= Number(a.target || 1);
     return p.targetReached && p.accuracyMet;
   }
   function markCompleteIfReady(a, at){
-    const p = assignmentProgressSummary(a);
     const o = a.occurrences.current;
-    if(!o || o.completed || !completionReady(a)) return {assignment:a, completed:false, rewardCoins:0, progress:p};
+    const p = assignmentProgressSummary(a, o && o.date);
+    if(!o || o.completed || !completionReady(a, p)) return {assignment:a, completed:false, rewardCoins:0, progress:p};
     o.completed = true;
     o.completedAt = at || Date.now();
     let rewardCoins = 0;
