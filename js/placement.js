@@ -24,6 +24,7 @@
       attempt:Number(attempt || 0),
       responses:{ total:0, correct:0, bySkill:{}, byGrade:{} },
       recommendations:[],
+      pendingQuestion:null,
       appliedRecommendationSnapshot:null,
       undoSnapshot:null,
       lastTaken:null,
@@ -98,6 +99,70 @@
     const weak = pool.filter(id => (bySkill[id] && bySkill[id].attempted < 2 && bySkill[id].correct === 0))[0];
     if(weak) return weak;
     return pool[(p.responses.total || 0) % pool.length];
+  }
+  function choiceId(questionId, index) {
+    return questionId + ":c" + index;
+  }
+  function buildQuestion(placement, generator, at) {
+    const p = placement && placement.responses ? placement : normalizePlacement(placement, placement && placement.homeGradeAtStart);
+    if (p.status !== "in_progress") return null;
+    if (p.pendingQuestion && !p.pendingQuestion.answered) return p.pendingQuestion;
+    const skillId = nextSkill(p);
+    const skill = C.BY_ID[skillId];
+    if (!skill || typeof generator !== "function") return null;
+    const q = generator(skillId);
+    const questionId = "plc-" + p.attempt + "-" + ((p.responses.total || 0) + 1) + "-" + skillId.replace(/[^a-zA-Z0-9]/g, "") + "-" + (at || now());
+    const choices = (q.choices || []).map((c, i) => ({ id:choiceId(questionId, i), h:c.h }));
+    const okIndex = (q.choices || []).findIndex(c => c && c.ok);
+    if (okIndex < 0) return null;
+    p.pendingQuestion = {
+      id:questionId,
+      skillId,
+      skillLabel:skill.label,
+      skillGrade:skill.grade,
+      questionNumber:(p.responses.total || 0) + 1,
+      qHTML:q.qHTML,
+      tip:q.tip || "",
+      choices,
+      correctChoiceId:choiceId(questionId, okIndex),
+      issuedAt:at || now(),
+      answered:false,
+    };
+    return p.pendingQuestion;
+  }
+  function issueQuestion(placement, generator, at) {
+    const p = normalizePlacement(placement, placement && placement.homeGradeAtStart);
+    const q = buildQuestion(p, generator, at);
+    return { placement:p, question:q };
+  }
+  function publicQuestion(q) {
+    if (!q) return null;
+    return {
+      id:q.id,
+      skillId:q.skillId,
+      skillLabel:q.skillLabel,
+      skillGrade:q.skillGrade,
+      questionNumber:q.questionNumber,
+      qHTML:q.qHTML,
+      tip:q.tip,
+      choices:(q.choices || []).map(c => ({ id:c.id, h:c.h })),
+    };
+  }
+  function answerPendingQuestion(placement, questionId, choiceIdValue, at) {
+    const p = normalizePlacement(placement, placement && placement.homeGradeAtStart);
+    if (p.status !== "in_progress") return { error:"placement_not_in_progress", placement:p };
+    const q = p.pendingQuestion;
+    if (!q) return { error:"no_pending_question", placement:p };
+    if (q.answered) return { error:"question_already_answered", placement:p };
+    if (q.id !== questionId) return { error:"stale_question", placement:p };
+    if (!(q.choices || []).some(c => c.id === choiceIdValue)) return { error:"invalid_choice", placement:p };
+    const correct = choiceIdValue === q.correctChoiceId;
+    q.answered = true;
+    q.answeredAt = at || now();
+    q.selectedChoiceId = choiceIdValue;
+    p.pendingQuestion = null;
+    const next = recordResponse(p, q.skillId, correct, at);
+    return { placement:next, correct };
   }
   function recordResponse(placement, skillId, correct, at){
     const p = normalizePlacement(placement, placement && placement.homeGradeAtStart);
@@ -181,6 +246,7 @@
     p.recommended = false;
     delete p.pool;
     delete p.cursor;
+    p.pendingQuestion = null;
     return p;
   }
   function skipPlacement(placement, homeGrade, at){
@@ -250,7 +316,7 @@
   const api = {
     MAX_Q, MIN_Q, PER_GRADE,
     gradeLabel, bands, newPlacementState, normalizePlacement, representativeSkills,
-    startAttempt, nextSkill, recordResponse, shouldStop, completeAttempt,
+    startAttempt, nextSkill, buildQuestion, issueQuestion, publicQuestion, answerPendingQuestion, recordResponse, shouldStop, completeAttempt,
     skipPlacement, resetForRetake, applyRecommendations, undoLastApply,
   };
   if(typeof module !== "undefined" && module.exports) module.exports = api;

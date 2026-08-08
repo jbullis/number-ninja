@@ -77,7 +77,7 @@
   }
   async function startPlacement(){
     const r=await apiPost({action:'placement_start',name:SYNC.name,pin:SYNC.pin});
-    if(r.data&&r.data.ok){ PROFILE.controls.placement=r.data.placement; renderPlacementQuestion(r.data.nextSkill); }
+    if(r.data&&r.data.ok){ PROFILE.controls.placement=r.data.placement; renderPlacementQuestion(r.data.question); }
   }
   async function skipPlacement(){
     const r=await apiPost({action:'placement_skip',name:SYNC.name,pin:SYNC.pin});
@@ -85,34 +85,33 @@
     document.getElementById('placementOverlay').classList.remove('on');
     renderHome();
   }
-  function renderPlacementQuestion(skillId){
+  function renderPlacementQuestion(question){
     ensurePlacementUi();
-    const p=placementState(), skill=C.BY_ID[skillId];
-    plcCurrent={skillId,q:genSkill(skillId)};
+    const p=placementState(), skill=question&&C.BY_ID[question.skillId];
+    plcCurrent={question};
     const b=document.getElementById('plcBody');
     b.innerHTML='<div class="plcProgress">Question '+((p.responses&&p.responses.total||0)+1)+' · The check stops when there is enough evidence</div>'+
       '<div class="plcTitle">'+(skill?skill.label:'Placement question')+'</div>'+
       '<div class="plcSub">'+(skill?gradeLabel(skill.grade):'')+' · No rewards or penalties here.</div>'+
-      '<div class="plcQ">'+plcCurrent.q.qHTML+'</div><div class="plcAnswers" id="plcAnswers"></div><div class="plcDone" id="plcMsg"></div>';
+      '<div class="plcQ">'+(question&&question.qHTML||'')+'</div><div class="plcAnswers" id="plcAnswers"></div><div class="plcDone" id="plcMsg"></div>';
     const wrap=document.getElementById('plcAnswers');
-    plcCurrent.q.choices.forEach((c,i)=>{
-      const btn=document.createElement('button');btn.className='plcAns';btn.innerHTML=c.h;btn.onclick=()=>answerPlacement(i,btn);wrap.appendChild(btn);
+    (question&&question.choices||[]).forEach((c,i)=>{
+      const btn=document.createElement('button');btn.className='plcAns';btn.innerHTML=c.h;btn.onclick=()=>answerPlacement(c.id,btn);wrap.appendChild(btn);
     });
   }
-  async function answerPlacement(i,btn){
-    if(!plcCurrent) return;
+  async function answerPlacement(choiceId,btn){
+    if(!plcCurrent||!plcCurrent.question) return;
     document.querySelectorAll('.plcAns').forEach(b=>b.disabled=true);
-    const ok=!!plcCurrent.q.choices[i].ok;
-    btn.style.borderColor=ok?'#4ade80':'#ff6b7a';
-    const r=await apiPost({action:'placement_progress',name:SYNC.name,pin:SYNC.pin,skillId:plcCurrent.skillId,correct:ok});
+    const r=await apiPost({action:'placement_progress',name:SYNC.name,pin:SYNC.pin,questionId:plcCurrent.question.id,choiceId});
     if(!(r.data&&r.data.ok)){ document.getElementById('plcMsg').textContent='Could not save that answer. Try again in a moment.'; return; }
+    btn.style.borderColor=r.data.correct?'#4ade80':'#ff6b7a';
     PROFILE.controls.placement=r.data.placement;
     if(r.data.stop){
       const done=await apiPost({action:'placement_complete',name:SYNC.name,pin:SYNC.pin});
       if(done.data&&done.data.ok) PROFILE.controls.placement=done.data.placement;
       showPlacementDone();
     } else {
-      setTimeout(()=>renderPlacementQuestion(r.data.nextSkill),550);
+      setTimeout(()=>renderPlacementQuestion(r.data.question),550);
     }
   }
   function showPlacementDone(){

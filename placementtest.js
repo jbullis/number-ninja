@@ -7,6 +7,8 @@ const KV={store:new Map(),async get(k){return this.store.has(k)?this.store.get(k
 let fails=0;
 function ck(v,m,x){if(!v){fails++;console.error('FAIL:',m,x||'')}}
 async function call(body){const r=await api.playerPost({json:async()=>body},{store:KV});return {status:r.status,body:await r.json()}}
+function recFor(name){ return JSON.parse(KV.store.get('player:'+name.toLowerCase())); }
+function rightChoice(name){ return recFor(name).controls.placement.pendingQuestion.correctChoiceId; }
 
 (async()=>{
   ck(P.bands('K').join(',')==='K,1','Kindergarten samples K and 1');
@@ -47,14 +49,48 @@ async function call(body){const r=await api.playerPost({json:async()=>body},{sto
   r=await call({action:'placement_skip',name:'PlaceKid',pin:'1234'});
   ck(r.body.placement.status==='skipped','API skip');
   r=await call({action:'placement_start',name:'PlaceKid',pin:'1234'});
-  ck(r.body.placement.status==='in_progress'&&r.body.nextSkill,'API start placement');
-  for(let i=0;i<8;i++){
-    const skill=r.body.nextSkill;
-    r=await call({action:'placement_progress',name:'PlaceKid',pin:'1234',skillId:skill,correct:true});
+  ck(r.body.placement.status==='in_progress'&&r.body.question&&r.body.nextSkill,'API start placement');
+  ck(!JSON.stringify(r.body).includes('correctChoiceId'),'public placement response does not expose answer key');
+  const firstQuestion=r.body.question;
+  const resumed=await call({action:'placement_start',name:'PlaceKid',pin:'1234'});
+  ck(resumed.body.question.id===firstQuestion.id&&resumed.body.placement.responses.total===0,'repeated placement_start resumes active run');
+  let forged=await call({action:'placement_progress',name:'PlaceKid',pin:'1234',skillId:'5.logic',correct:true});
+  ck(forged.status===400&&forged.body.error==='question_required','client cannot fake correct boolean');
+  forged=await call({action:'placement_progress',name:'PlaceKid',pin:'1234',questionId:firstQuestion.id,choiceId:firstQuestion.choices[0].id,skillId:'5.logic'});
+  ck(forged.status===409&&forged.body.error==='different_skill','arbitrary skill ID is rejected');
+  forged=await call({action:'placement_progress',name:'PlaceKid',pin:'1234',questionId:firstQuestion.id,choiceId:'fake-choice'});
+  ck(forged.status===400&&forged.body.error==='invalid_choice','arbitrary choice rejected');
+  const wrongChoice=firstQuestion.choices.find(c=>c.id!==rightChoice('PlaceKid')).id;
+  r=await call({action:'placement_progress',name:'PlaceKid',pin:'1234',questionId:firstQuestion.id,choiceId:wrongChoice});
+  ck(r.status===200&&r.body.correct===false&&r.body.placement.responses.correct===0,'server scores incorrect selected answer');
+  forged=await call({action:'placement_progress',name:'PlaceKid',pin:'1234',questionId:firstQuestion.id,choiceId:wrongChoice});
+  ck(forged.status===409&&forged.body.error==='stale_question','stale duplicate response rejected');
+  forged=await call({action:'placement_complete',name:'PlaceKid',pin:'1234'});
+  ck(forged.status===409&&forged.body.error==='pending_question_unanswered','cannot complete with pending question');
+  for(let i=0;i<12;i++){
+    const q=r.body.question;
+    r=await call({action:'placement_progress',name:'PlaceKid',pin:'1234',questionId:q.id,choiceId:rightChoice('PlaceKid')});
     if(r.body.stop)break;
   }
   r=await call({action:'placement_complete',name:'PlaceKid',pin:'1234'});
   ck(r.body.placement.status==='completed'&&r.body.placement.recommendations.length>0,'API complete recommendations');
+
+  r=await call({action:'register_student',name:'EarlyKid',pin:'3333',grade:'4'});
+  r=await call({action:'placement_start',name:'EarlyKid',pin:'3333'});
+  r=await call({action:'placement_progress',name:'EarlyKid',pin:'3333',questionId:r.body.question.id,choiceId:rightChoice('EarlyKid')});
+  r=await call({action:'placement_complete',name:'EarlyKid',pin:'3333'});
+  ck(r.status===409&&r.body.error==='pending_question_unanswered','early completion rejected before minimum evidence');
+
+  r=await call({action:'register_student',name:'MaxKid',pin:'4444',grade:'4'});
+  r=await call({action:'placement_start',name:'MaxKid',pin:'4444'});
+  let last;
+  for(let i=0;i<12;i++){
+    const q=r.body.question;
+    last=await call({action:'placement_progress',name:'MaxKid',pin:'4444',questionId:q.id,choiceId:rightChoice('MaxKid')});
+    r=last;
+    if(r.body.stop)break;
+  }
+  ck(last.body.stop===true&&last.body.placement.responses.total<=12,'maximum 12-question stop still works');
 
   r=await call({action:'apply_placement_recommendations',name:'PlaceKid',pin:'1234',childName:'PlaceKid'});
   ck(r.status===403&&r.body.error==='wrong_account_type','child cannot apply placement recommendations');
