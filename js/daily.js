@@ -11,7 +11,14 @@
 
   function clone(x){ return JSON.parse(JSON.stringify(x == null ? null : x)); }
   function pad(n){ return String(n).padStart(2,"0"); }
-  function validDate(s){ return /^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(String(s||"")) && !Number.isNaN(Date.parse(String(s)+"T00:00:00Z")); }
+  function validDate(s){
+    const m = String(s || "").match(/^([0-9]{4})-([0-9]{2})-([0-9]{2})$/);
+    if(!m) return false;
+    const y = Number(m[1]), mo = Number(m[2]), d = Number(m[3]);
+    if(mo < 1 || mo > 12 || d < 1 || d > 31) return false;
+    const dt = new Date(Date.UTC(y, mo - 1, d));
+    return dt.getUTCFullYear() === y && dt.getUTCMonth() === mo - 1 && dt.getUTCDate() === d;
+  }
   function todayLocal(d){
     d = d || new Date();
     return d.getFullYear() + "-" + pad(d.getMonth()+1) + "-" + pad(d.getDate());
