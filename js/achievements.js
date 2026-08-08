@@ -58,6 +58,18 @@
   }
   // Re-assign sort after construction because A uses the incrementing value.
   CATALOG.forEach((a,i) => { a.sort = i; });
+  const COSMETIC_REWARDS = {
+    "mastery.first_black_belt":"title:blackbelt",
+    "mastery.10_black_belts":"e:Legend",
+    "streak.10":"frame:streak10",
+    "assignments.first_complete":"title:assignment",
+    "plan.first_remediation_resolved":"aura:focus",
+    "plan.first_enrichment_resolved":"aura:advanced",
+    "special.perfect_black_belt":"frame:silentstar"
+  };
+  CATALOG.forEach(a => {
+    if(COSMETIC_REWARDS[a.id]) a.reward = { coins:0, cosmeticId:COSMETIC_REWARDS[a.id] };
+  });
 
   function clone(x){ return JSON.parse(JSON.stringify(x == null ? null : x)); }
   function now(options){ return Number(options && options.now || Date.now()); }
@@ -271,7 +283,7 @@
       earned,
       earnedAt:earned ? state.earned[a.id].earnedAt : null,
       progress:earned ? { value:a.target, target:a.target, percent:100 } : progress(a, m),
-      reward:{ coins:0, cosmeticId:null },
+      reward:a.reward || { coins:0, cosmeticId:null },
     };
   }
   function publicSummary(state, data, controls){

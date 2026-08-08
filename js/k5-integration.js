@@ -15,7 +15,7 @@
   const PROFILE={controls:{homeGrade:'4',allowAboveGrade:true,audioInstructions:false,skillOverrides:{}},accountType:'student'};
   window.NINJA_PROFILE=PROFILE;
   let signupMode=false;
-  let DAILY_STATUS=null, DAILY_RECS=null, ASSIGNMENTS=[], LEARNING_PLAN=null, ACHIEVEMENTS=null, lastActiveAt=Date.now(), lastHeartbeatAt=Date.now();
+  let DAILY_STATUS=null, DAILY_RECS=null, ASSIGNMENTS=[], LEARNING_PLAN=null, ACHIEVEMENTS=null, COSMETIC_SUMMARY=null, lastActiveAt=Date.now(), lastHeartbeatAt=Date.now();
   const shownAwards=new Set();
 
   function gradeLabel(g){return g==='K'?'Kindergarten':'Grade '+g}
@@ -23,7 +23,7 @@
   function masterySummary(){return M?M.summary({progress:S.progress},controls()):{eligibleChallenges:[],dueReviews:[],bySkill:{}}}
   function localDate(){const d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')}
   function eventId(kind){return kind+'-'+Date.now()+'-'+Math.random().toString(36).slice(2,8)}
-  function mergeDaily(r){if(r&&r.data&&r.data.ok){if(r.data.controls)PROFILE.controls=r.data.controls;if(r.data.dailyStatus)DAILY_STATUS=r.data.dailyStatus;if(r.data.recommendations)DAILY_RECS=r.data.recommendations;if(r.data.assignments)ASSIGNMENTS=r.data.assignments;if(r.data.learningPlan)LEARNING_PLAN=r.data.learningPlan;if(r.data.achievements){ACHIEVEMENTS=r.data.achievements;showAchievementAwards(r.data.achievements.recentAwards||[]);}}}
+  function mergeDaily(r){if(r&&r.data&&r.data.ok){if(r.data.controls)PROFILE.controls=r.data.controls;if(r.data.dailyStatus)DAILY_STATUS=r.data.dailyStatus;if(r.data.recommendations)DAILY_RECS=r.data.recommendations;if(r.data.assignments)ASSIGNMENTS=r.data.assignments;if(r.data.learningPlan)LEARNING_PLAN=r.data.learningPlan;if(r.data.achievements){ACHIEVEMENTS=r.data.achievements;showAchievementAwards(r.data.achievements.recentAwards||[]);}if(r.data.cosmetics){COSMETIC_SUMMARY=r.data.cosmetics;if(window.applyCosmeticsSummary)window.applyCosmeticsSummary(r.data.cosmetics);if(window.showCosmeticUnlocks)window.showCosmeticUnlocks(r.data.cosmetics.recentUnlocks||[]);}}}
   function dots(n,emoji){emoji=emoji||'●';return '<div style="font-size:30px;line-height:1.5;letter-spacing:5px;max-width:420px;margin:auto">'+Array.from({length:n},()=>emoji).join(' ')+'</div>'}
   function q(topic,html,ans,alts,tip){return {topic,qHTML:html,choices:numChoices(ans,alts||[]),tip:tip||'Take your time and use what you already know.'}}
   function seqChoices(ans,spread){return numChoices(ans,[ans-1,ans+1,ans+(spread||2),Math.max(0,ans-(spread||2))])}
@@ -322,7 +322,7 @@
       if(r.data&&r.data.ok){
         SYNC.name=name;SYNC.pin=pin;SYNC.online=true;applySave(r.data.data);
         PROFILE.accountType='student';PROFILE.controls=r.data.controls||PROFILE.controls;
-        DAILY_STATUS=r.data.dailyStatus||DAILY_STATUS;DAILY_RECS=r.data.recommendations||DAILY_RECS;ASSIGNMENTS=r.data.assignments||ASSIGNMENTS;LEARNING_PLAN=r.data.learningPlan||LEARNING_PLAN;if(r.data.achievements){ACHIEVEMENTS=r.data.achievements;showAchievementAwards(r.data.achievements.recentAwards||[]);}
+        DAILY_STATUS=r.data.dailyStatus||DAILY_STATUS;DAILY_RECS=r.data.recommendations||DAILY_RECS;ASSIGNMENTS=r.data.assignments||ASSIGNMENTS;LEARNING_PLAN=r.data.learningPlan||LEARNING_PLAN;if(r.data.achievements){ACHIEVEMENTS=r.data.achievements;showAchievementAwards(r.data.achievements.recentAwards||[]);}if(r.data.cosmetics){COSMETIC_SUMMARY=r.data.cosmetics;if(window.applyCosmeticsSummary)window.applyCosmeticsSummary(r.data.cosmetics);if(window.showCosmeticUnlocks)window.showCosmeticUnlocks(r.data.cosmetics.recentUnlocks||[]);}
         return {ok:true,created:signupMode||!!r.data.created};
       }
       let err=(r.data&&r.data.error)||'error';
@@ -467,6 +467,6 @@
   }
 
   if(typeof S!=='undefined'&&S.name&&SYNC&&SYNC.online){
-    apiPost({action:'report',name:SYNC.name,pin:SYNC.pin,localDate:localDate()}).then(r=>{if(r.data&&r.data.ok){PROFILE.controls=r.data.controls||PROFILE.controls;DAILY_STATUS=r.data.dailyStatus||DAILY_STATUS;DAILY_RECS=r.data.recommendations||DAILY_RECS;ASSIGNMENTS=r.data.assignments||ASSIGNMENTS;LEARNING_PLAN=r.data.learningPlan||LEARNING_PLAN;buildWorlds();renderHome()}}).catch(()=>{});
+    apiPost({action:'report',name:SYNC.name,pin:SYNC.pin,localDate:localDate()}).then(r=>{if(r.data&&r.data.ok){mergeDaily(r);buildWorlds();renderHome()}}).catch(()=>{});
   }
 })();

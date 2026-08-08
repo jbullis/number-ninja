@@ -751,7 +751,10 @@ sup{font-size:.6em;}
     <div class="shopTabs" id="shopTabs">
       <button class="shopTab on" data-cat="characters"><span class="tc">🥷</span>Characters</button>
       <button class="shopTab" data-cat="powerups"><span class="tc">⚡</span>Power-Ups</button>
-      <button class="shopTab" data-cat="effects"><span class="tc">✨</span>Auras</button>
+      <button class="shopTab" data-cat="auras"><span class="tc">✨</span>Auras</button>
+      <button class="shopTab" data-cat="titles"><span class="tc">BB</span>Titles</button>
+      <button class="shopTab" data-cat="frames"><span class="tc">[]</span>Frames</button>
+      <button class="shopTab" data-cat="backgrounds"><span class="tc">DO</span>Dojo</button>
     </div>
     <div class="shopDesc" id="shopDesc"></div>
     <div class="shopGrid" id="shopGrid"></div>
@@ -1585,6 +1588,7 @@ const S={
   name:null, stats:{played:0, bestScore:0, totalCorrect:0},
   progress:{topics:{}, sessions:[], story:{}, mastery:{}, solved:{}, arenaRun:null, needHelp:[]}
 };
+let COSMETICS=null;
 
 /* ---- skill mastery = NINJA BELTS (visual progression a kid instantly gets) ---- */
 const BELTS=[
@@ -1676,6 +1680,24 @@ function applySave(d){
   S.progress={ topics:p.topics||{}, sessions:p.sessions||[], story:p.story||{},
     mastery:p.mastery||{}, solved:p.solved||{}, arenaRun:p.arenaRun||null, needHelp:p.needHelp||[], seedsApplied:p.seedsApplied||{} };
 }
+function applyCosmeticsSummary(summary){
+  if(!summary) return;
+  COSMETICS=summary;
+  if(typeof summary.coins==='number') S.coins=summary.coins;
+  const eq=summary.equipped||{};
+  if(eq.avatar) S.skin=eq.avatar;
+  if(eq.aura) S.effect=eq.aura;
+  if(Array.isArray(summary.items)){
+    const owned=summary.items.filter(i=>i.owned&&i.slot==='avatar').map(i=>i.id);
+    const auras=summary.items.filter(i=>i.owned&&i.slot==='aura').map(i=>i.id);
+    if(owned.length) S.owned=owned;
+    if(auras.length) S.ownedEffects=auras;
+  }
+  if(!S.owned.includes('e:Ninja')) S.owned.push('e:Ninja');
+  if(!S.ownedEffects.includes('none')) S.ownedEffects.push('none');
+  updateCoinCounters();
+}
+window.applyCosmeticsSummary=applyCosmeticsSummary;
 function setSyncStatus(kind){
   const dot=$('syncDot'), txt=$('syncTxt');
   if(!SYNC.name){ dot.classList.remove('on'); return; }
@@ -1717,7 +1739,7 @@ async function flushSave(){
   SYNC.inflight=true; SYNC.dirty=false; setSyncStatus('saving');
   try{
     const r=await apiPost({ action:'save', name:SYNC.name, pin:SYNC.pin, data:packSave() });
-    if(r.data && r.data.ok){ setSyncStatus('saved'); }
+    if(r.data && r.data.ok){ if(r.data.data) applySave(r.data.data); if(r.data.cosmetics){ applyCosmeticsSummary(r.data.cosmetics); showCosmeticUnlocks(r.data.cosmetics.recentUnlocks||[]); } setSyncStatus('saved'); }
     else { SYNC.dirty=true; setSyncStatus('offline'); }
   }catch(e){ SYNC.dirty=true; SYNC.online=false; setSyncStatus('offline'); }
   SYNC.inflight=false;
@@ -2764,13 +2786,79 @@ let shopCat='characters';
 const SHOP_DESC={
   characters:'Pick who you play as. Tap one you own to equip it.',
   powerups:'Boosters you buy and use during a mission. Stock up!',
-  effects:'Cosmetic auras for your character. Buy once, then tap to wear.'
+  auras:'Cosmetic auras for your character. Buy once, then tap to wear.',
+  titles:'Nameplate titles earned or bought with coins.',
+  frames:'Profile frames for your ninja card.',
+  backgrounds:'Dojo backdrops for your home base.'
 };
 function buy(cost, ok){
   if(S.coins<cost) return false;
   S.coins-=cost; ok(); confetti(); sLevel(); renderShop(); renderHome(); scheduleSave(); return true;
 }
 function nope(b){ sWrong(); b.style.animation='losewob .4s'; setTimeout(()=>b.style.animation='',450); }
+function shopRequestId(kind){ return kind+'-'+Date.now()+'-'+Math.random().toString(36).slice(2,8); }
+function cosmeticGlyph(item){
+  if(item.slot==='avatar' && (item.id||'').indexOf('e:')===0) return skinHTML(item.id);
+  if(item.slot==='aura') return item.id==='none'?'○':'<span class="fxPrev fx-'+item.id.replace(/[^a-z0-9_-]/gi,'')+'" style="display:inline-block;width:40px;height:40px;border-radius:50%;background:#1a2260;">'+'</span>';
+  return item.icon||'*';
+}
+async function buyCosmetic(item,b){
+  if(!SYNC.online){ nope(b); return; }
+  b.disabled=true;
+  try{
+    const r=await apiPost({action:'cosmetic_purchase',name:SYNC.name,pin:SYNC.pin,cosmeticId:item.id,requestId:shopRequestId('buy')});
+    if(!(r.data&&r.data.ok)){ nope(b); b.disabled=false; return; }
+    if(r.data.data) applySave(r.data.data);
+    if(r.data.cosmetics){ applyCosmeticsSummary(r.data.cosmetics); showCosmeticUnlocks(r.data.cosmetics.recentUnlocks||[]); }
+    confetti(); sLevel(); renderShop(); renderHome();
+  }catch(e){ nope(b); b.disabled=false; }
+}
+async function equipCosmetic(item,b){
+  if(!SYNC.online){ nope(b); return; }
+  b.disabled=true;
+  try{
+    const r=await apiPost({action:'cosmetic_equip',name:SYNC.name,pin:SYNC.pin,cosmeticId:item.id,slot:item.slot});
+    if(!(r.data&&r.data.ok)){ nope(b); b.disabled=false; return; }
+    if(r.data.data) applySave(r.data.data);
+    if(r.data.cosmetics) applyCosmeticsSummary(r.data.cosmetics);
+    sClick(); renderShop(); renderHome();
+  }catch(e){ nope(b); b.disabled=false; }
+}
+function renderCosmeticShop(){
+  const g=$('shopGrid');
+  if(!COSMETICS||!Array.isArray(COSMETICS.items)) return false;
+  COSMETICS.items.filter(i=>i.category===shopCat).forEach(item=>{
+    const b=document.createElement('button');
+    b.className='sItem'+(item.owned?' owned':'')+(item.equipped?' active':'')+(item.hidden&&!item.owned?' locked':'');
+    const cost=item.owned?(item.equipped?'EQUIPPED':'OWNED, tap!'):(item.unlockType==='coins'?item.priceCoins+' coins':(item.requirementText||'Locked'));
+    b.innerHTML='<div class="sGlyph">'+cosmeticGlyph(item)+'</div><div class="sName">'+item.name+'</div>'+
+      '<div class="sCost">'+cost+'</div><div class="sDesc">'+(item.owned?item.description:(item.unlockType==='coins'?'Buy with coins.':item.requirementText||'Mystery unlock'))+'</div>';
+    b.onclick=()=>{ if(item.owned&&!item.equipped) equipCosmetic(item,b); else if(!item.owned&&item.unlockType==='coins') buyCosmetic(item,b); else if(!item.owned) nope(b); };
+    g.appendChild(b);
+  });
+  if(shopCat==='characters' && IMG_SKINS.length){
+    IMG_SKINS.forEach(a=>{
+      const owned=S.owned.includes(a.id), equipped=S.skin===a.id;
+      const glyph='<img class="skinImg" src="images/'+encodeURIComponent(a.file)+'" alt="'+a.name+'">';
+      const b=document.createElement('button');
+      b.className='sItem'+(owned?' owned':'')+(equipped?' active':'');
+      b.innerHTML='<div class="sGlyph">'+glyph+'</div><div class="sName">'+a.name+'</div>'+
+        '<div class="sCost">'+(owned? (equipped?'EQUIPPED':'OWNED, tap!') : a.cost+' coins')+'</div><div class="sDesc">Legacy image character.</div>';
+      b.onclick=()=>{ if(owned){ S.skin=a.id; sClick(); renderShop(); renderHome(); scheduleSave(); }
+        else if(!buy(a.cost, ()=>{ S.owned.push(a.id); S.skin=a.id; })) nope(b); };
+      g.appendChild(b);
+    });
+  }
+  return true;
+}
+function showCosmeticUnlocks(unlocks){
+  unlocks=(unlocks||[]).filter(u=>u&&u.owned);
+  if(!unlocks.length||typeof overlay!=='function')return;
+  const first=unlocks[0],more=unlocks.length>1?'<div class="ovSub">+'+(unlocks.length-1)+' more cosmetic'+(unlocks.length===2?'':'s')+' unlocked</div>':'';
+  overlay('<div class="ovGlyph">'+cosmeticGlyph(first)+'</div><div class="ovBig">New Gear!</div><div class="ovSub"><b>'+first.name+'</b><br>'+(first.requirementText||first.description||'Unlocked for your ninja.')+'</div><div class="plcActions"><button class="plcBtn good" id="equipNewCosmetic">Equip Now</button><button class="plcBtn ghost" id="skipNewCosmetic">Maybe Later</button></div>'+more,4200,null);
+  setTimeout(()=>{const e=$('equipNewCosmetic'),s=$('skipNewCosmetic');if(e)e.onclick=()=>equipCosmetic(first,e);if(s)s.onclick=()=>{$('overlay').classList.remove('on')};},0);
+}
+window.showCosmeticUnlocks=showCosmeticUnlocks;
 function renderShop(cat){
   if(cat) shopCat=cat;
   $('shopCoins').textContent=S.coins;
@@ -2778,6 +2866,9 @@ function renderShop(cat){
   document.querySelectorAll('.shopTab').forEach(t=>t.classList.toggle('on', t.dataset.cat===shopCat));
   const g=$('shopGrid'); g.innerHTML='';
 
+  if(shopCat!=='powerups' && renderCosmeticShop()){
+    return;
+  }
   if(shopCat==='characters'){
     allSkins().forEach((a)=>{
       const owned=S.owned.includes(a.id), equipped=S.skin===a.id;
@@ -2802,7 +2893,7 @@ function renderShop(cat){
       b.onclick=()=>{ if(!buy(pu.cost, ()=>{ S.inventory[pu.id]=(S.inventory[pu.id]||0)+(pu.per||1); if(pu.id==='freeplay') renderHome(); })) nope(b); };
       g.appendChild(b);
     });
-  } else {
+  } else if(shopCat==='auras'){
     EFFECTS.forEach(fx=>{
       const owned=S.ownedEffects.includes(fx.id), equipped=S.effect===fx.id;
       const b=document.createElement('button');
@@ -3211,6 +3302,7 @@ autoLogin();   // jump straight back in if he's already signed in on this device
 <script src="/js/assignments.js"></script>
 <script src="/js/learning-plan.js"></script>
 <script src="/js/achievements.js"></script>
+<script src="/js/cosmetics.js"></script>
 <script src="/js/recommendations.js"></script>
 <script src="/js/k5-integration.js"></script>
 <script src="/js/k5-compat.js"></script>
