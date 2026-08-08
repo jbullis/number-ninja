@@ -5,6 +5,7 @@
   "use strict";
   const C = (typeof module !== "undefined" && module.exports) ? require("./curriculum.js") : root.NINJA_CURRICULUM;
   const Mastery = (typeof module !== "undefined" && module.exports) ? require("./mastery.js") : root.NINJA_MASTERY;
+  const PRIORITY = { parent_assignment:0, needs_review:1, weak_prerequisite:20, challenge_ready:30, home_progression:40, enrichment:50 };
 
   function progressFor(data){ return data && data.progress || {}; }
   function masteryMap(data){ return progressFor(data).mastery || {}; }
@@ -63,7 +64,7 @@
       const s = C.BY_ID[id], st = bySkill[id] || {};
       if(s && st.certified && (st.needsReview || (st.reviewDueAt && st.reviewDueAt <= t))) {
         const age = st.reviewDueAt ? Math.max(0, t - st.reviewDueAt) / 86400000 : 0;
-        out.push(rec(s, "needs_review", st.needsReview ? "This Black Belt stays earned. A short review will keep it sharp." : "This Black Belt review is due.", 1 - Math.min(age, 30) / 100, "Needs Review"));
+        out.push(rec(s, "needs_review", st.needsReview ? "This Black Belt stays earned. A short review will keep it sharp." : "This Black Belt review is due.", PRIORITY.needs_review - Math.min(age, 30) / 100, "Needs Review"));
       }
     });
 
@@ -105,7 +106,7 @@
     return {primary:list[0] || null, alternates:list.slice(1,4), recommendations:list};
   }
 
-  const api = { buildRecommendations, primaryAndAlternates, missingPrereqRecommendations };
+  const api = { PRIORITY, buildRecommendations, primaryAndAlternates, missingPrereqRecommendations };
   if(typeof module !== "undefined" && module.exports) module.exports = api;
   root.NINJA_RECOMMENDATIONS = api;
 })(typeof globalThis !== "undefined" ? globalThis : this);
