@@ -59,6 +59,7 @@
     </section>
   </main>
 </div>
+<script src="/js/curriculum.js"></script>
 <script>
 const $=id=>document.getElementById(id);
 const API='/api/player';
@@ -66,6 +67,7 @@ const PARENT_LOGIN='/api/parent-login';
 const IDLE_MS=2*60*1000;
 let AUTH=null, idleTimer=null;
 const gradeLabel=g=>g==='K'?'Kindergarten':'Grade '+g;
+const skillLabel=id=>window.NINJA_CURRICULUM&&window.NINJA_CURRICULUM.BY_ID&&window.NINJA_CURRICULUM.BY_ID[id]?window.NINJA_CURRICULUM.BY_ID[id].label:id;
 function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 async function post(body,url){
   const r=await fetch(url||API,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});
@@ -157,7 +159,12 @@ async function openSettings(childName,d){
   }catch(e){d.classList.remove('hidden');d.textContent=friendly(e)}
 }
 async function openReport(childName,d){
-  try{const j=await post(parentBody('parent_report',{childName}));const data=j.data||{};const p=data.progress||{};const solved=p.solved?Object.keys(p.solved).length:0;resetIdle();d.classList.remove('hidden');d.innerHTML=`<b>Progress snapshot</b><div class="muted" style="margin-top:6px">Home grade: ${esc(gradeLabel(j.controls&&j.controls.homeGrade||'4'))}<br>Level: ${Number(data.level||1)} · Coins: ${Number(data.coins||0)} · Workbook problems solved: ${solved}<br>Placement: ${esc(j.controls&&j.controls.placement&&j.controls.placement.status||'not started')}</div>`}catch(e){d.classList.remove('hidden');d.textContent=friendly(e)}
+  try{const j=await post(parentBody('parent_report',{childName}));const data=j.data||{};const p=data.progress||{};const solved=p.solved?Object.keys(p.solved).length:0;const ms=j.masterySummary||{};const by=ms.bySkill||{};const certified=Object.keys(by).filter(id=>by[id]&&by[id].certified);const needs=Object.keys(by).filter(id=>by[id]&&by[id].certified&&by[id].needsReview);const ready=(ms.eligibleChallenges||[]).map(x=>x.skillId);resetIdle();d.classList.remove('hidden');let html=`<b>Progress snapshot</b><div class="muted" style="margin-top:6px">Home grade: ${esc(gradeLabel(j.controls&&j.controls.homeGrade||'4'))}<br>Level: ${Number(data.level||1)} · Coins: ${Number(data.coins||0)} · Workbook problems solved: ${solved}<br>Placement: ${esc(j.controls&&j.controls.placement&&j.controls.placement.status||'not started')}</div>`;html+=`<div class="detail" style="display:block"><b>Mastery</b><div class="muted" style="margin-top:6px">Certified Black Belts: ${certified.length?certified.map(id=>esc(skillLabel(id))).join(', '):'None yet'}<br>Challenge ready: ${ready.length?ready.map(id=>esc(skillLabel(id))).join(', '):'None right now'}<br>Needs Review: ${needs.length?needs.map(id=>esc(skillLabel(id))).join(', '):'None'}</div></div>`;d.innerHTML=html}catch(e){d.classList.remove('hidden');d.textContent=friendly(e)}
+}
+const openReportBase=openReport;
+openReport=async function(childName,d){
+  await openReportBase(childName,d);
+  try{const j=await post(parentBody('parent_report',{childName}));const by=(j.masterySummary&&j.masterySummary.bySkill)||{};const rows=Object.keys(by).filter(id=>by[id]&&by[id].certified).slice(0,5).map(id=>`${esc(skillLabel(id))}: certified ${by[id].certifiedAt?new Date(by[id].certifiedAt).toLocaleDateString():'date unknown'}, next review ${by[id].reviewDueAt?new Date(by[id].reviewDueAt).toLocaleDateString():'not scheduled'}`);if(rows.length)d.insertAdjacentHTML('beforeend',`<div class="muted" style="margin-top:8px">${rows.join('<br>')}</div>`)}catch(e){}
 }
 function recLabel(r){return ({keep_current_path:'Keep current path',strengthen_prerequisite:'Strengthen prerequisite',start_at_current_skill:'Start here',unlock_advanced_skill:'Unlock advanced skill',recommend_above_grade_skill:'Recommend above-grade skill',recommend_lower_skill_reinforcement:'Reinforcement practice'})[r.action]||String(r.action||'Review')}
 async function openPlacement(childName,d){

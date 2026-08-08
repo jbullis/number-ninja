@@ -201,9 +201,17 @@
     mastery = mastery || {};
     const homeGrade = (options && options.homeGrade) || "4";
     const homeIdx = GRADE_INDEX[homeGrade];
+    const bySkill = options && options.skillMastery && options.skillMastery.bySkill || {};
+    const t = Date.now();
+    function needsReviewPriority(skillId) {
+      const s = bySkill[skillId] || {};
+      return s.certified && (s.needsReview || (s.reviewDueAt && s.reviewDueAt <= t)) ? 0 : 1;
+    }
     return unlockedSkills(mastery, overrides, options)
       .filter(s => (mastery[s.id] || 0) < 100)
       .sort((a,b) => {
+        const ra = needsReviewPriority(a.id), rb = needsReviewPriority(b.id);
+        if (ra !== rb) return ra - rb;
         const ma = mastery[a.id] || 0, mb = mastery[b.id] || 0;
         const ga = Math.abs(GRADE_INDEX[a.grade] - homeIdx), gb = Math.abs(GRADE_INDEX[b.grade] - homeIdx);
         return ga - gb || ma - mb || a.label.localeCompare(b.label);

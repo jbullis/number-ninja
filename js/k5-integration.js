@@ -6,12 +6,14 @@
   if(!window.NINJA_CURRICULUM) return;
   const C=window.NINJA_CURRICULUM;
   const P=window.NINJA_PLACEMENT;
+  const M=window.NINJA_MASTERY;
   const PROFILE={controls:{homeGrade:'4',allowAboveGrade:true,audioInstructions:false,skillOverrides:{}},accountType:'student'};
   window.NINJA_PROFILE=PROFILE;
   let signupMode=false;
 
   function gradeLabel(g){return g==='K'?'Kindergarten':'Grade '+g}
   function controls(){return PROFILE.controls||{homeGrade:'4',allowAboveGrade:true,skillOverrides:{}}}
+  function masterySummary(){return M?M.summary({progress:S.progress},controls()):{eligibleChallenges:[],dueReviews:[],bySkill:{}}}
   function dots(n,emoji){emoji=emoji||'●';return '<div style="font-size:30px;line-height:1.5;letter-spacing:5px;max-width:420px;margin:auto">'+Array.from({length:n},()=>emoji).join(' ')+'</div>'}
   function q(topic,html,ans,alts,tip){return {topic,qHTML:html,choices:numChoices(ans,alts||[]),tip:tip||'Take your time and use what you already know.'}}
   function seqChoices(ans,spread){return numChoices(ans,[ans-1,ans+1,ans+(spread||2),Math.max(0,ans-(spread||2))])}
@@ -122,6 +124,59 @@
     document.getElementById('plcDoneBtn').onclick=()=>{document.getElementById('placementOverlay').classList.remove('on');renderHome();show('home')};
   }
 
+  let masteryCurrent=null;
+  async function startMasteryChallenge(skillId){
+    ensurePlacementUi();
+    const r=await apiPost({action:'mastery_challenge_start',name:SYNC.name,pin:SYNC.pin,skillId});
+    if(!(r.data&&r.data.ok)){comboFlash('Practice a little more first.');return;}
+    renderMasteryQuestion('challenge',r.data.question);
+  }
+  async function startMasteryReview(skillId){
+    ensurePlacementUi();
+    const r=await apiPost({action:'mastery_review_start',name:SYNC.name,pin:SYNC.pin,skillId});
+    if(!(r.data&&r.data.ok)){comboFlash('Review is not ready yet.');return;}
+    renderMasteryQuestion('review',r.data.question);
+  }
+  function renderMasteryQuestion(kind,question){
+    ensurePlacementUi();
+    const o=document.getElementById('placementOverlay'), b=document.getElementById('plcBody');
+    o.classList.add('on');
+    masteryCurrent={kind,question};
+    const skill=question&&C.BY_ID[question.skillId], title=kind==='review'?'Black Belt Review':'Black Belt Challenge';
+    b.innerHTML='<div class="plcProgress">Question '+(question&&question.questionNumber||1)+' of '+(question&&question.totalQuestions||'')+'</div>'+
+      '<div class="plcTitle">'+title+'</div>'+
+      '<div class="plcSub">'+(skill?skill.label:'Skill check')+' Â· No coins, streaks, or belts change while this is being scored.</div>'+
+      '<div class="plcQ">'+(question&&question.qHTML||'')+'</div><div class="plcAnswers" id="masteryAnswers"></div><div class="plcDone" id="masteryMsg"></div>';
+    const wrap=document.getElementById('masteryAnswers');
+    (question&&question.choices||[]).forEach(c=>{
+      const btn=document.createElement('button');btn.className='plcAns';btn.innerHTML=c.h;btn.onclick=()=>answerMastery(c.id,btn);wrap.appendChild(btn);
+    });
+  }
+  async function answerMastery(choiceId,btn){
+    if(!masteryCurrent||!masteryCurrent.question) return;
+    document.querySelectorAll('.plcAns').forEach(b=>b.disabled=true);
+    const action=masteryCurrent.kind==='review'?'mastery_review_answer':'mastery_challenge_answer';
+    const r=await apiPost({action,name:SYNC.name,pin:SYNC.pin,questionId:masteryCurrent.question.id,choiceId});
+    if(!(r.data&&r.data.ok)){document.getElementById('masteryMsg').textContent='Could not save that answer. Try again in a moment.';return;}
+    btn.style.borderColor=r.data.correct?'#4ade80':'#ff6b7a';
+    if(!r.data.complete){setTimeout(()=>renderMasteryQuestion(masteryCurrent.kind,r.data.question),550);return;}
+    const doneAction=masteryCurrent.kind==='review'?'mastery_review_complete':'mastery_challenge_complete';
+    const done=await apiPost({action:doneAction,name:SYNC.name,pin:SYNC.pin});
+    if(done.data&&done.data.ok){
+      PROFILE.controls.skillMastery=done.data.skillMastery||PROFILE.controls.skillMastery;
+      showMasteryDone(masteryCurrent.kind,done.data.result);
+    }else{
+      document.getElementById('masteryMsg').textContent='Almost done. Try again in a moment.';
+    }
+  }
+  function showMasteryDone(kind,result){
+    const b=document.getElementById('plcBody'), passed=result&&result.passed, review=kind==='review';
+    b.innerHTML='<div class="plcGlyph">'+(passed?'â˜…':'âœ“')+'</div><div class="plcTitle">'+(review?'Review Complete':(passed?'Black Belt Certified':'Challenge Complete'))+'</div>'+
+      '<div class="plcSub">'+(review?(passed?'That skill is staying sharp.':'That Black Belt stays earned. This skill will show up for extra review.'):passed?'You certified this skill as a Black Belt.':'Good work finishing the challenge. Practice a bit more and you can retry soon.')+'</div>'+
+      '<div class="plcActions"><button class="plcBtn good" id="masteryDoneBtn">Back to Dojo</button></div>';
+    document.getElementById('masteryDoneBtn').onclick=()=>{document.getElementById('placementOverlay').classList.remove('on');buildWorlds();renderHome();show('home')};
+  }
+
   C.SKILLS.forEach(s=>{
     if(!GENS[s.id]) GENS[s.id]=()=>genSkill(s.id);
     if(!TOPICNAMES[s.id]) TOPICNAMES[s.id]=s.label;
@@ -162,9 +217,26 @@
     const g=document.getElementById('worldGrid'); if(!g)return;
     const c=controls(),home=c.homeGrade||'4';
     if(home==='4' && !Object.keys(S.progress.mastery||{}).some(k=>k.includes('.'))){oldBuildWorlds();return;}
+    const summary=masterySummary();
+    const needs=M?M.needsReviewSet(c):{};
+    const specialIds=new Set();
     const rec=C.nextRecommendations(S.progress.mastery||{},c.skillOverrides||{},c,8);
     g.innerHTML='';
+    (summary.dueReviews||[]).slice(0,2).forEach(s=>{
+      specialIds.add(s.skillId);
+      const b=document.createElement('button');b.className='wcard';b.style.setProperty('--wc','#ffb020');
+      b.innerHTML='<div class="wicon">*</div><div class="wname">'+s.skillLabel+'</div><div class="wdesc">'+(s.needsReview?'Needs Review':'Black Belt Review')+' - keep it sharp</div>';
+      b.onclick=()=>startMasteryReview(s.skillId);g.appendChild(b);
+    });
+    (summary.eligibleChallenges||[]).slice(0,2).forEach(s=>{
+      if(specialIds.has(s.skillId))return;
+      specialIds.add(s.skillId);
+      const b=document.createElement('button');b.className='wcard';b.style.setProperty('--wc','#7c83ff');
+      b.innerHTML='<div class="wicon">BB</div><div class="wname">'+s.skillLabel+'</div><div class="wdesc">Black Belt Challenge Ready - short skill check</div>';
+      b.onclick=()=>startMasteryChallenge(s.skillId);g.appendChild(b);
+    });
     rec.forEach(s=>{
+      if(specialIds.has(s.id))return;
       const b=document.createElement('button');b.className='wcard';b.style.setProperty('--wc',TOPICCOLORS[s.id]);
       const m=(S.progress.mastery||{})[s.id]||0,visual=C.visualSupport(s.id,m);
       b.innerHTML='<div class="wicon">'+(s.grade==='K'?'🌟':s.grade==='1'?'🥋':s.grade==='2'?'⚡':s.grade==='3'?'🧠':'🎯')+'</div><div class="wname">'+s.label+'</div><div class="wdesc">'+gradeLabel(s.grade)+' · '+visual+' visual support</div>';
@@ -177,8 +249,9 @@
     const topics=Object.keys(mastery||{}).filter(t=>(mastery[t]||0)>0);
     if(!topics.length)return '<div class="parEmpty">'+(forKid?'Answer questions to start earning belts! 🥋':'No belts earned yet.')+'</div>';
     topics.sort((a,b)=>(mastery[b]||0)-(mastery[a]||0));let html='';
-    topics.slice(0,12).forEach(t=>{const v=mastery[t]||0,L=masteryLevel(v);html+='<div class="beltRow"><div class="mTop"><span class="mName">'+(TOPICNAMES[t]||t)+'</span><span class="mLvl" style="color:'+L.color+'">'+L.name+'</span></div>'+beltLadder(v)+'</div>'});
-    return html+'<div class="beltKey">Belts show mastery of each skill, not grade level.</div>';
+    const sm=(controls().skillMastery&&controls().skillMastery.bySkill)||{};
+    topics.slice(0,12).forEach(t=>{const v=mastery[t]||0,st=sm[t]||{},cert=!!st.certified,ready=!!st.challengeEligible,display=cert?100:Math.min(v,80),L=cert?BELTS[5]:masteryLevel(display);html+='<div class="beltRow"><div class="mTop"><span class="mName">'+(TOPICNAMES[t]||t)+'</span><span class="mLvl" style="color:'+L.color+'">'+(cert?'Black Belt':L.name)+(st.needsReview?' - Needs Review':ready?' - Challenge Ready':'')+'</span></div>'+beltLadder(display)+'</div>'});
+    return html+'<div class="beltKey">Black Belt means certified by a mastery challenge. Review never removes certification.</div>';
   };
 
   // Phase 1 onboarding controls.
