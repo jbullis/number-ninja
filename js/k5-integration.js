@@ -7,13 +7,19 @@
   const C=window.NINJA_CURRICULUM;
   const P=window.NINJA_PLACEMENT;
   const M=window.NINJA_MASTERY;
+  const D=window.NINJA_DAILY;
+  const R=window.NINJA_RECOMMENDATIONS;
   const PROFILE={controls:{homeGrade:'4',allowAboveGrade:true,audioInstructions:false,skillOverrides:{}},accountType:'student'};
   window.NINJA_PROFILE=PROFILE;
   let signupMode=false;
+  let DAILY_STATUS=null, DAILY_RECS=null, lastActiveAt=Date.now(), lastHeartbeatAt=Date.now();
 
   function gradeLabel(g){return g==='K'?'Kindergarten':'Grade '+g}
   function controls(){return PROFILE.controls||{homeGrade:'4',allowAboveGrade:true,skillOverrides:{}}}
   function masterySummary(){return M?M.summary({progress:S.progress},controls()):{eligibleChallenges:[],dueReviews:[],bySkill:{}}}
+  function localDate(){const d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')}
+  function eventId(kind){return kind+'-'+Date.now()+'-'+Math.random().toString(36).slice(2,8)}
+  function mergeDaily(r){if(r&&r.data&&r.data.ok){if(r.data.controls)PROFILE.controls=r.data.controls;if(r.data.dailyStatus)DAILY_STATUS=r.data.dailyStatus;if(r.data.recommendations)DAILY_RECS=r.data.recommendations;}}
   function dots(n,emoji){emoji=emoji||'●';return '<div style="font-size:30px;line-height:1.5;letter-spacing:5px;max-width:420px;margin:auto">'+Array.from({length:n},()=>emoji).join(' ')+'</div>'}
   function q(topic,html,ans,alts,tip){return {topic,qHTML:html,choices:numChoices(ans,alts||[]),tip:tip||'Take your time and use what you already know.'}}
   function seqChoices(ans,spread){return numChoices(ans,[ans-1,ans+1,ans+(spread||2),Math.max(0,ans-(spread||2))])}
@@ -124,6 +130,27 @@
     document.getElementById('plcDoneBtn').onclick=()=>{document.getElementById('placementOverlay').classList.remove('on');renderHome();show('home')};
   }
 
+  async function refreshDaily(){
+    if(!SYNC||!SYNC.online||!D)return;
+    try{const r=await apiPost({action:'daily_status',name:SYNC.name,pin:SYNC.pin,localDate:localDate()});mergeDaily(r);renderDailyPanel();}catch(e){}
+  }
+  async function countDailyProblem(source){
+    if(!SYNC||!SYNC.online||!D)return;
+    try{const r=await apiPost({action:'daily_problem_complete',name:SYNC.name,pin:SYNC.pin,localDate:localDate(),eventId:eventId(source||'practice'),source:source||'practice'});mergeDaily(r);renderDailyPanel();}catch(e){}
+  }
+  async function sendActiveHeartbeat(source){
+    if(!SYNC||!SYNC.online||!D||document.hidden)return;
+    const now=Date.now();
+    if(now-lastActiveAt>120000)return;
+    const sec=Math.max(1,Math.min(30,Math.floor((now-lastHeartbeatAt)/1000)));
+    if(sec<15)return;
+    lastHeartbeatAt=now;
+    try{const r=await apiPost({action:'daily_active_time',name:SYNC.name,pin:SYNC.pin,localDate:localDate(),eventId:eventId('time'),seconds:sec,source:source||'practice'});mergeDaily(r);renderDailyPanel();}catch(e){}
+  }
+  ['pointerdown','keydown','touchstart'].forEach(ev=>document.addEventListener(ev,()=>{lastActiveAt=Date.now()},{passive:true}));
+  document.addEventListener('visibilitychange',()=>{lastActiveAt=Date.now();lastHeartbeatAt=Date.now()});
+  setInterval(()=>{if(SYNC&&SYNC.online&&(S.mode==='arena'||S.mode==='story'||masteryCurrent))sendActiveHeartbeat(masteryCurrent?masteryCurrent.kind:'practice')},30000);
+
   let masteryCurrent=null;
   async function startMasteryChallenge(skillId){
     ensurePlacementUi();
@@ -159,11 +186,13 @@
     const r=await apiPost({action,name:SYNC.name,pin:SYNC.pin,questionId:masteryCurrent.question.id,choiceId});
     if(!(r.data&&r.data.ok)){document.getElementById('masteryMsg').textContent='Could not save that answer. Try again in a moment.';return;}
     btn.style.borderColor=r.data.correct?'#4ade80':'#ff6b7a';
+    countDailyProblem(masteryCurrent.kind==='review'?'mastery_review':'mastery_challenge');
     if(!r.data.complete){setTimeout(()=>renderMasteryQuestion(masteryCurrent.kind,r.data.question),550);return;}
     const doneAction=masteryCurrent.kind==='review'?'mastery_review_complete':'mastery_challenge_complete';
     const done=await apiPost({action:doneAction,name:SYNC.name,pin:SYNC.pin});
     if(done.data&&done.data.ok){
       PROFILE.controls.skillMastery=done.data.skillMastery||PROFILE.controls.skillMastery;
+      await refreshDaily();
       showMasteryDone(masteryCurrent.kind,done.data.result);
     }else{
       document.getElementById('masteryMsg').textContent='Almost done. Try again in a moment.';
@@ -186,6 +215,12 @@
   const OLD_WORLD_IDS=['ops','machine','equation','fraction','factor','shape','multiply','angle','compare'];
   GENS.mix=(tier)=>GENS[pick(OLD_WORLD_IDS)](tier);
 
+  const oldRecordSolve=recordSolve;
+  recordSolve=function(topic,wrongs,tutors){
+    oldRecordSolve(topic,wrongs,tutors);
+    countDailyProblem('practice');
+  };
+
   // Student login is now explicit: returning students cannot silently create an account.
   // New students use register_student and must choose a home grade.
   cloudLogin=async function(name,pin){
@@ -193,11 +228,12 @@
       const gradeEl=document.getElementById('gradeInp');
       const payload=signupMode
         ? {action:'register_student',name,pin,grade:gradeEl?gradeEl.value:'4'}
-        : {action:'report',name,pin};
+        : {action:'report',name,pin,localDate:localDate()};
       const r=await apiPost(payload);
       if(r.data&&r.data.ok){
         SYNC.name=name;SYNC.pin=pin;SYNC.online=true;applySave(r.data.data);
         PROFILE.accountType='student';PROFILE.controls=r.data.controls||PROFILE.controls;
+        DAILY_STATUS=r.data.dailyStatus||DAILY_STATUS;DAILY_RECS=r.data.recommendations||DAILY_RECS;
         return {ok:true,created:signupMode||!!r.data.created};
       }
       let err=(r.data&&r.data.error)||'error';
@@ -213,14 +249,32 @@
 
   // Grade-aware practice arena.
   const oldBuildWorlds=buildWorlds;
+  function renderDailyPanel(){
+    if(!D)return;
+    const grid=document.getElementById('worldGrid'); if(!grid||!grid.parentNode)return;
+    let panel=document.getElementById('dailyPanel');
+    if(!panel){panel=document.createElement('div');panel.id='dailyPanel';panel.className='profile';panel.style.cssText='max-width:560px;display:block;margin-bottom:12px';grid.parentNode.insertBefore(panel,grid)}
+    const st=DAILY_STATUS, recs=DAILY_RECS||(R?R.primaryAndAlternates({progress:S.progress},controls()):null);
+    if(!st){panel.innerHTML='<div class="rank">Today&apos;s Goal</div><div class="lvlline">Loading your daily path...</div>';return;}
+    const goal=st.goal||{}, prog=st.progress||{}, streak=st.streak||{}, value=goal.type==='minutes'?Math.floor((prog.activeSeconds||0)/60):(prog.problemsCompleted||0), target=Number(goal.target||1);
+    const pct=Math.max(0,Math.min(100,Math.round(value/target*100)));
+    const label=goal.type==='minutes'?value+' / '+target+' minutes':value+' / '+target+' problems';
+    const status=st.vacation?'Streak paused for vacation':(!st.scheduled?'No goal scheduled today':(prog.completed?'Goal complete':'Keep going'));
+    const primary=recs&&recs.primary;
+    panel.innerHTML='<div class="rank">Today&apos;s Goal</div><div class="lvlline">'+label+' - '+status+'</div><div class="xpTrack"><div class="xpFill" style="width:'+pct+'%"></div></div>'+
+      '<div class="lvlline">Streak: '+Number(streak.currentStreak||0)+' day'+(Number(streak.currentStreak||0)===1?'':'s')+' · Grace days: '+Number(streak.graceBalance||0)+'</div>'+
+      (primary?'<div class="callout" style="margin-top:8px"><b>'+primary.badge+':</b> '+primary.skillLabel+'<br><span class="muted">'+primary.reason+'</span></div>':'');
+  }
   buildWorlds=function(){
     const g=document.getElementById('worldGrid'); if(!g)return;
     const c=controls(),home=c.homeGrade||'4';
-    if(home==='4' && !Object.keys(S.progress.mastery||{}).some(k=>k.includes('.'))){oldBuildWorlds();return;}
+    if(home==='4' && !Object.keys(S.progress.mastery||{}).some(k=>k.includes('.'))){oldBuildWorlds();renderDailyPanel();return;}
+    const recPack=R?R.primaryAndAlternates({progress:S.progress},c):null;
+    DAILY_RECS=recPack||DAILY_RECS;
     const summary=masterySummary();
     const needs=M?M.needsReviewSet(c):{};
     const specialIds=new Set();
-    const rec=C.nextRecommendations(S.progress.mastery||{},c.skillOverrides||{},c,8);
+    const rec=(recPack&&recPack.recommendations||[]).map(r=>C.BY_ID[r.skillId]).filter(Boolean);
     g.innerHTML='';
     (summary.dueReviews||[]).slice(0,2).forEach(s=>{
       specialIds.add(s.skillId);
@@ -243,6 +297,7 @@
       b.onclick=()=>{sClick();startRun({id:s.id,name:s.label,gen:()=>genSkill(s.id),color:TOPICCOLORS[s.id]})};g.appendChild(b);
     });
     if(!rec.length) oldBuildWorlds();
+    renderDailyPanel();
   };
 
   beltPanelHTML=function(mastery,forKid){
@@ -291,11 +346,12 @@
   const profile=document.querySelector('.profile');
   if(profile&&!document.getElementById('homeGradeBadge')){const d=document.createElement('div');d.id='homeGradeBadge';d.style.cssText='font-size:11px;font-weight:900;color:#22d3ee;border:1px solid #2c3577;border-radius:999px;padding:5px 9px;white-space:nowrap';profile.appendChild(d)}
   const oldRenderHome=renderHome;
-  renderHome=function(){oldRenderHome();const e=document.getElementById('homeGradeBadge');if(e)e.textContent=gradeLabel(controls().homeGrade||'4')};
+  renderHome=function(){oldRenderHome();const e=document.getElementById('homeGradeBadge');if(e)e.textContent=gradeLabel(controls().homeGrade||'4');renderDailyPanel()};
 
   const oldEnterDojo=enterDojo;
   enterDojo=function(created,offline){
     oldEnterDojo(created,offline);
+    refreshDaily();
     if(shouldOfferPlacement(created)) setTimeout(showPlacementOffer, created?2100:500);
   };
 
@@ -313,6 +369,6 @@
   }
 
   if(typeof S!=='undefined'&&S.name&&SYNC&&SYNC.online){
-    apiPost({action:'report',name:SYNC.name,pin:SYNC.pin}).then(r=>{if(r.data&&r.data.ok){PROFILE.controls=r.data.controls||PROFILE.controls;buildWorlds();renderHome()}}).catch(()=>{});
+    apiPost({action:'report',name:SYNC.name,pin:SYNC.pin,localDate:localDate()}).then(r=>{if(r.data&&r.data.ok){PROFILE.controls=r.data.controls||PROFILE.controls;DAILY_STATUS=r.data.dailyStatus||DAILY_STATUS;DAILY_RECS=r.data.recommendations||DAILY_RECS;buildWorlds();renderHome()}}).catch(()=>{});
   }
 })();

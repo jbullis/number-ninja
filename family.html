@@ -60,6 +60,7 @@
   </main>
 </div>
 <script src="/js/curriculum.js"></script>
+<script src="/js/daily.js"></script>
 <script>
 const $=id=>document.getElementById(id);
 const API='/api/player';
@@ -68,6 +69,7 @@ const IDLE_MS=2*60*1000;
 let AUTH=null, idleTimer=null;
 const gradeLabel=g=>g==='K'?'Kindergarten':'Grade '+g;
 const skillLabel=id=>window.NINJA_CURRICULUM&&window.NINJA_CURRICULUM.BY_ID&&window.NINJA_CURRICULUM.BY_ID[id]?window.NINJA_CURRICULUM.BY_ID[id].label:id;
+function localDate(){const d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')}
 function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 async function post(body,url){
   const r=await fetch(url||API,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});
@@ -144,6 +146,7 @@ function renderChildren(children){
     el.querySelector('.settings').onclick=()=>openSettings(c.username,d);
     el.querySelector('.report').onclick=()=>openReport(c.username,d);
     el.querySelector('.placement').onclick=()=>openPlacement(c.username,d);
+    const dailyBtn=document.createElement('button');dailyBtn.className='btn ghost daily';dailyBtn.textContent='Daily';dailyBtn.onclick=()=>openDaily(c.username,d);el.querySelector('.actions').appendChild(dailyBtn);
     $('children').appendChild(el);
   });
 }
@@ -167,6 +170,24 @@ openReport=async function(childName,d){
   try{const j=await post(parentBody('parent_report',{childName}));const by=(j.masterySummary&&j.masterySummary.bySkill)||{};const rows=Object.keys(by).filter(id=>by[id]&&by[id].certified).slice(0,5).map(id=>`${esc(skillLabel(id))}: certified ${by[id].certifiedAt?new Date(by[id].certifiedAt).toLocaleDateString():'date unknown'}, next review ${by[id].reviewDueAt?new Date(by[id].reviewDueAt).toLocaleDateString():'not scheduled'}`);if(rows.length)d.insertAdjacentHTML('beforeend',`<div class="muted" style="margin-top:8px">${rows.join('<br>')}</div>`)}catch(e){}
 }
 function recLabel(r){return ({keep_current_path:'Keep current path',strengthen_prerequisite:'Strengthen prerequisite',start_at_current_skill:'Start here',unlock_advanced_skill:'Unlock advanced skill',recommend_above_grade_skill:'Recommend above-grade skill',recommend_lower_skill_reinforcement:'Reinforcement practice'})[r.action]||String(r.action||'Review')}
+async function openDaily(childName,d){
+  try{
+    const j=await post(parentBody('parent_report',{childName,localDate:localDate()}));resetIdle();
+    const c=j.controls||{},goals=c.dailyGoals||(window.NINJA_DAILY&&window.NINJA_DAILY.defaultDailyGoals?window.NINJA_DAILY.defaultDailyGoals():{}),st=j.dailyStatus||{},sk=st.streak||{},ranges=c.vacationRanges||[];
+    const days=['sun','mon','tue','wed','thu','fri','sat'],names={sun:'Sun',mon:'Mon',tue:'Tue',wed:'Wed',thu:'Thu',fri:'Fri',sat:'Sat'};
+    d.classList.remove('hidden');
+    let html=`<b>Daily goals</b><div class="muted" style="margin-top:6px">Current streak: ${Number(sk.currentStreak||0)} · Longest: ${Number(sk.longestStreak||0)} · Grace days: ${Number(sk.graceBalance||0)}</div>`;
+    html+='<div class="grid" style="margin-top:10px">';
+    days.forEach(day=>{const g=goals[day]||{enabled:false,type:'problems',target:12};html+=`<div class="field"><label>${names[day]}</label><label class="toggle"><input class="dgOn" data-day="${day}" type="checkbox" ${g.enabled?'checked':''}> Enabled</label><select class="dgType" data-day="${day}"><option value="problems" ${g.type==='minutes'?'':'selected'}>Problems</option><option value="minutes" ${g.type==='minutes'?'selected':''}>Minutes</option></select><input class="dgTarget" data-day="${day}" type="number" min="1" max="120" value="${Number(g.target||12)}"></div>`});
+    html+='</div><div class="actions"><button class="btn good saveGoals">Save goals</button></div>';
+    html+=`<div class="detail" style="display:block"><b>Vacation pauses</b><div class="muted">One date range per line as YYYY-MM-DD to YYYY-MM-DD.</div><textarea class="vacRows" style="width:100%;min-height:72px;background:#0d1340;color:var(--ink);border:1px solid var(--line);border-radius:12px;padding:10px">${ranges.map(r=>`${r.start} to ${r.end}`).join('\n')}</textarea><div class="actions"><button class="btn good saveVac">Save vacations</button></div></div>`;
+    html+=`<div class="detail" style="display:block"><b>Grace days</b><div class="row"><input class="grantQty" type="number" min="1" max="30" value="1"><button class="btn good grantGrace">Grant grace days</button></div></div><div class="status msg"></div>`;
+    d.innerHTML=html;
+    d.querySelector('.saveGoals').onclick=async()=>{try{const next={};days.forEach(day=>{next[day]={enabled:d.querySelector('.dgOn[data-day="'+day+'"]').checked,type:d.querySelector('.dgType[data-day="'+day+'"]').value,target:Number(d.querySelector('.dgTarget[data-day="'+day+'"]').value||1)}});await post(parentBody('parent_update_daily_goals',{childName,dailyGoals:next}));d.querySelector('.msg').textContent='Daily goals saved.';resetIdle();await openDaily(childName,d)}catch(e){d.querySelector('.msg').textContent=friendly(e)}};
+    d.querySelector('.saveVac').onclick=async()=>{try{const vacationRanges=d.querySelector('.vacRows').value.split(/\n+/).map(line=>{const m=line.match(/([0-9]{4}-[0-9]{2}-[0-9]{2}).*?([0-9]{4}-[0-9]{2}-[0-9]{2})/);return m?{start:m[1],end:m[2]}:null}).filter(Boolean);await post(parentBody('parent_update_vacations',{childName,vacationRanges}));d.querySelector('.msg').textContent='Vacation pauses saved.';resetIdle();await openDaily(childName,d)}catch(e){d.querySelector('.msg').textContent=friendly(e)}};
+    d.querySelector('.grantGrace').onclick=async()=>{try{await post(parentBody('parent_grant_grace',{childName,quantity:Number(d.querySelector('.grantQty').value||1)}));d.querySelector('.msg').textContent='Grace days granted.';resetIdle();await openDaily(childName,d)}catch(e){d.querySelector('.msg').textContent=friendly(e)}};
+  }catch(e){d.classList.remove('hidden');d.textContent=friendly(e)}
+}
 async function openPlacement(childName,d){
   try{
     const j=await post(parentBody('parent_report',{childName}));resetIdle();
