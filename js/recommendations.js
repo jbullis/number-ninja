@@ -5,6 +5,7 @@
   "use strict";
   const C = (typeof module !== "undefined" && module.exports) ? require("./curriculum.js") : root.NINJA_CURRICULUM;
   const Mastery = (typeof module !== "undefined" && module.exports) ? require("./mastery.js") : root.NINJA_MASTERY;
+  const Assignments = (typeof module !== "undefined" && module.exports) ? require("./assignments.js") : root.NINJA_ASSIGNMENTS;
   const PRIORITY = { parent_assignment:0, needs_review:1, weak_prerequisite:20, challenge_ready:30, home_progression:40, enrichment:50 };
 
   function progressFor(data){ return data && data.progress || {}; }
@@ -16,6 +17,26 @@
   }
   function rec(skill, type, reason, priority, badge){
     return {skillId:skill.id, skillLabel:skill.label, grade:skill.grade, type, reason, priority, badge};
+  }
+  function assignmentRecommendations(controls, options){
+    if(!Assignments) return [];
+    const nowDate = options && options.localDate;
+    return Assignments.activeSummaries(controls && controls.assignments, {localDate:nowDate, includeNotes:false})
+      .map((a,i) => {
+        const dueBoost = a.displayStatus === "overdue" ? -0.5 : a.dueDate ? -0.25 : 0;
+        return {
+          assignmentId:a.id,
+          title:a.title,
+          skillId:a.skillIds && a.skillIds[0] || null,
+          skillLabel:a.title,
+          grade:a.skills && a.skills[0] && a.skills[0].grade || "",
+          type:"parent_assignment",
+          reason:a.displayStatus === "overdue" ? "This one is waiting for you." : "A parent assignment is ready.",
+          priority:PRIORITY.parent_assignment + dueBoost + i / 100,
+          badge:"Parent Assignment",
+          assignment:a,
+        };
+      });
   }
   function missingPrereqRecommendations(data, controls){
     const mastery = masteryMap(data), homeGrade = controls.homeGrade || "4";
@@ -60,6 +81,8 @@
     const bySkill = controls.skillMastery && controls.skillMastery.bySkill || {};
     const t = options && options.now || Date.now();
 
+    assignmentRecommendations(controls, options).forEach(r => out.push(r));
+
     Object.keys(bySkill).forEach(id => {
       const s = C.BY_ID[id], st = bySkill[id] || {};
       if(s && st.certified && (st.needsReview || (st.reviewDueAt && st.reviewDueAt <= t))) {
@@ -96,13 +119,17 @@
 
     const seen = new Set();
     return out
-      .filter(r => C.BY_ID[r.skillId])
-      .sort((a,b) => a.priority - b.priority || C.GRADE_INDEX[a.grade] - C.GRADE_INDEX[b.grade] || a.skillLabel.localeCompare(b.skillLabel))
-      .filter(r => !seen.has(r.skillId) && seen.add(r.skillId))
+      .filter(r => r.type === "parent_assignment" || C.BY_ID[r.skillId])
+      .sort((a,b) => a.priority - b.priority || (C.GRADE_INDEX[a.grade] || 0) - (C.GRADE_INDEX[b.grade] || 0) || a.skillLabel.localeCompare(b.skillLabel))
+      .filter(r => {
+        const key = r.type === "parent_assignment" ? "assignment:" + r.assignmentId : "skill:" + r.skillId;
+        return !seen.has(key) && seen.add(key);
+      })
       .slice(0, limit);
   }
-  function primaryAndAlternates(data, controls){
-    const list = buildRecommendations(data, controls, {limit:4});
+  function primaryAndAlternates(data, controls, options){
+    options = Object.assign({limit:4}, options || {});
+    const list = buildRecommendations(data, controls, options);
     return {primary:list[0] || null, alternates:list.slice(1,4), recommendations:list};
   }
 

@@ -73,15 +73,14 @@
     const start = Daily.validDate(fromDate) ? fromDate : Daily.todayLocal(new Date());
     if(a.schedule === "once") {
       if(a.occurrences && a.occurrences.lastCompletedDate) return null;
-      if(a.dueDate && Daily.cmpDate(a.dueDate, start) < 0) return null;
-      return a.dueDate || start;
+      return (a.occurrences && a.occurrences.currentOccurrenceDate) || a.dueDate || start;
     }
     const days = normalizeWeekdays(a.weekdays);
     if(!days.length) return null;
     for(let i=0;i<=14;i++){
       const d = Daily.addDays(start, i);
       if(a.endDate && Daily.cmpDate(d, a.endDate) > 0) return null;
-      if(days.includes(Daily.weekdayKey(d))) return d;
+      if(days.includes(Daily.weekdayKey(d)) && !(a.occurrences && a.occurrences.recentCompletedDates || []).includes(d)) return d;
     }
     return null;
   }
@@ -124,6 +123,7 @@
     if(targetType === "minutes" && (target < LIMITS.minuteMin || target > LIMITS.minuteMax)) return {error:"invalid_target"};
     let minimumAccuracy = input.minimumAccuracy == null || input.minimumAccuracy === "" ? null : Math.floor(Number(input.minimumAccuracy));
     if(minimumAccuracy != null && (!Number.isFinite(minimumAccuracy) || minimumAccuracy < 50 || minimumAccuracy > 100)) return {error:"invalid_accuracy"};
+    if(targetType === "minutes" && minimumAccuracy != null) return {error:"accuracy_not_supported_for_time"};
     const schedule = input.schedule === "weekdays" ? "weekdays" : input.schedule === "once" || !input.schedule ? "once" : null;
     if(!schedule) return {error:"invalid_schedule"};
     const weekdays = schedule === "weekdays" ? normalizeWeekdays(input.weekdays) : [];
@@ -173,9 +173,34 @@
     a.reward = a.reward && Number.isFinite(Number(a.reward.coins)) ? {coins:Math.max(LIMITS.rewardMin, Math.min(LIMITS.rewardMax, Math.floor(Number(a.reward.coins))))} : rewardFor(a, a.skillIds);
     a.occurrences = a.occurrences && typeof a.occurrences === "object" ? a.occurrences : {};
     a.occurrences.recentCompletedDates = unique(a.occurrences.recentCompletedDates).filter(Daily.validDate).slice(-LIMITS.recentCompletedMax);
+    a.occurrences.recentOccurrences = Array.isArray(a.occurrences.recentOccurrences) ? a.occurrences.recentOccurrences.filter(x => x && Daily.validDate(x.date)).slice(-LIMITS.recentCompletedMax).map(x => ({
+      date:x.date,
+      attempted:Math.max(0, Number(x.attempted || 0)),
+      correct:Math.max(0, Number(x.correct || 0)),
+      activeSeconds:Math.max(0, Number(x.activeSeconds || 0)),
+      completed:!!x.completed,
+      missed:!!x.missed,
+      rewardCoins:Math.max(0, Number(x.rewardCoins || 0)),
+      completedAt:Number(x.completedAt || 0) || null,
+    })) : [];
     a.occurrences.lastCompletedDate = Daily.validDate(a.occurrences.lastCompletedDate) ? a.occurrences.lastCompletedDate : null;
     a.occurrences.currentOccurrenceDate = Daily.validDate(a.occurrences.currentOccurrenceDate) ? a.occurrences.currentOccurrenceDate : null;
     a.occurrences.nextOccurrenceDate = Daily.validDate(a.occurrences.nextOccurrenceDate) ? a.occurrences.nextOccurrenceDate : null;
+    a.occurrences.current = a.occurrences.current && typeof a.occurrences.current === "object" ? a.occurrences.current : null;
+    if(a.occurrences.current) {
+      a.occurrences.current = {
+        date:Daily.validDate(a.occurrences.current.date) ? a.occurrences.current.date : a.occurrences.currentOccurrenceDate,
+        attempted:Math.max(0, Number(a.occurrences.current.attempted || 0)),
+        correct:Math.max(0, Number(a.occurrences.current.correct || 0)),
+        activeSeconds:Math.max(0, Number(a.occurrences.current.activeSeconds || 0)),
+        completed:!!a.occurrences.current.completed,
+        completedAt:Number(a.occurrences.current.completedAt || 0) || null,
+        rewardAwarded:!!a.occurrences.current.rewardAwarded,
+        rewardAwardedAt:Number(a.occurrences.current.rewardAwardedAt || 0) || null,
+        rewardCoins:Math.max(0, Number(a.occurrences.current.rewardCoins || 0)),
+      };
+    }
+    a.occurrences.pendingQuestion = a.occurrences.pendingQuestion && typeof a.occurrences.pendingQuestion === "object" ? a.occurrences.pendingQuestion : null;
     a.notes = cleanText(a.notes, LIMITS.noteLength);
     a.archivedAt = Number(a.archivedAt || 0) || null;
     return a;
@@ -185,7 +210,29 @@
   }
   function refreshOccurrence(a, localDate){
     a = normalizeAssignment(a);
-    const next = nextOccurrenceDate(a, localDate);
+    const date = Daily.validDate(localDate) ? localDate : Daily.todayLocal(new Date());
+    if(a.schedule === "weekdays") {
+      const days = normalizeWeekdays(a.weekdays);
+      const recorded = new Set((a.occurrences.recentOccurrences || []).map(x => x.date));
+      const completed = new Set(a.occurrences.recentCompletedDates || []);
+      let scan = a.occurrences.currentOccurrenceDate || (a.occurrences.lastCompletedDate ? Daily.addDays(a.occurrences.lastCompletedDate, 1) : null);
+      for(let i=0; scan && i<14 && Daily.cmpDate(scan, date) < 0; i++, scan = Daily.addDays(scan, 1)) {
+        if(a.endDate && Daily.cmpDate(scan, a.endDate) > 0) break;
+        if(days.includes(Daily.weekdayKey(scan)) && !completed.has(scan) && !recorded.has(scan)) {
+          a.occurrences.recentOccurrences.push({date:scan, attempted:0, correct:0, activeSeconds:0, completed:false, missed:true, rewardCoins:0, completedAt:null});
+          recorded.add(scan);
+        }
+      }
+      a.occurrences.recentOccurrences = a.occurrences.recentOccurrences.slice(-LIMITS.recentCompletedMax);
+    }
+    if(a.schedule === "weekdays" && a.occurrences.current && a.occurrences.current.date && Daily.cmpDate(a.occurrences.current.date, date) < 0 && !a.occurrences.current.completed) {
+      a.occurrences.recentOccurrences.push(Object.assign({}, a.occurrences.current, {missed:true}));
+      a.occurrences.recentOccurrences = a.occurrences.recentOccurrences.slice(-LIMITS.recentCompletedMax);
+      a.occurrences.current = null;
+      a.occurrences.pendingQuestion = null;
+      a.occurrences.currentOccurrenceDate = null;
+    }
+    const next = nextOccurrenceDate(a, date);
     a.occurrences.nextOccurrenceDate = next;
     a.occurrences.currentOccurrenceDate = next;
     if(a.status === "active" && scheduleStatus(a, localDate) === "expired") a.status = "expired";
@@ -206,6 +253,149 @@
   }
   function exactDuplicate(list, candidate, now){
     return normalizeList(list).some(a => a.status === "active" && signature(a) === signature(candidate) && Math.abs(Number(now || Date.now()) - Number(a.createdAt || 0)) <= LIMITS.duplicateWindowMs);
+  }
+  function choiceId(questionId, index){ return questionId + ":c" + index; }
+  function idSafe(id){ return String(id || "").replace(/[^a-zA-Z0-9]/g, ""); }
+  function occurrenceProgress(a, localDate){
+    a = refreshOccurrence(a, localDate);
+    if(a.status === "expired") return {error:"assignment_expired", assignment:a};
+    if(a.status !== "active") return {error:a.status === "archived" ? "assignment_archived" : "assignment_not_active", assignment:a};
+    if(scheduleStatus(a, localDate) === "expired") return {error:"assignment_expired", assignment:a};
+    const occurrenceDate = a.occurrences.currentOccurrenceDate || nextOccurrenceDate(a, localDate);
+    if(!occurrenceDate) return {error:"assignment_not_scheduled", assignment:a};
+    if(a.schedule === "weekdays" && Daily.cmpDate(occurrenceDate, localDate) > 0) return {error:"assignment_upcoming", assignment:a};
+    if(!a.occurrences.current || a.occurrences.current.date !== occurrenceDate) {
+      a.occurrences.current = { date:occurrenceDate, attempted:0, correct:0, activeSeconds:0, completed:false, completedAt:null, rewardAwarded:false, rewardAwardedAt:null, rewardCoins:0 };
+      a.occurrences.pendingQuestion = null;
+    }
+    return {assignment:a, occurrence:a.occurrences.current};
+  }
+  function assignmentProgressSummary(a, localDate){
+    const r = occurrenceProgress(a, localDate);
+    const a2 = r.assignment || a;
+    const o = r.occurrence || (a2.occurrences && a2.occurrences.current) || {};
+    const attempted = Number(o.attempted || 0), correct = Number(o.correct || 0), activeSeconds = Number(o.activeSeconds || 0);
+    const value = a2.targetType === "minutes" ? Math.floor(activeSeconds / 60) : attempted;
+    const accuracy = attempted ? Math.round((correct / attempted) * 100) : null;
+    const targetReached = value >= Number(a2.target || 1);
+    const accuracyMet = a2.minimumAccuracy == null || (accuracy != null && accuracy >= Number(a2.minimumAccuracy));
+    return {
+      occurrenceDate:o.date || (a2.occurrences && a2.occurrences.currentOccurrenceDate) || null,
+      attempted, correct, activeSeconds, value,
+      target:a2.target,
+      remaining:Math.max(0, Number(a2.target || 0) - value),
+      accuracy,
+      targetReached,
+      accuracyMet,
+      completed:!!o.completed,
+      completedAt:o.completedAt || null,
+      rewardAwarded:!!o.rewardAwarded,
+      rewardAwardedAt:o.rewardAwardedAt || null,
+      rewardCoins:Number(o.rewardCoins || 0),
+    };
+  }
+  function completionReady(a){
+    const p = assignmentProgressSummary(a);
+    if(a.targetType === "minutes") return p.value >= Number(a.target || 1);
+    return p.targetReached && p.accuracyMet;
+  }
+  function markCompleteIfReady(a, at){
+    const p = assignmentProgressSummary(a);
+    const o = a.occurrences.current;
+    if(!o || o.completed || !completionReady(a)) return {assignment:a, completed:false, rewardCoins:0, progress:p};
+    o.completed = true;
+    o.completedAt = at || Date.now();
+    let rewardCoins = 0;
+    if(!o.rewardAwarded) {
+      rewardCoins = Math.max(0, Number(a.reward && a.reward.coins || 0));
+      o.rewardAwarded = true;
+      o.rewardAwardedAt = o.completedAt;
+      o.rewardCoins = rewardCoins;
+    }
+    a.occurrences.lastCompletedDate = o.date;
+    if(!a.occurrences.recentCompletedDates.includes(o.date)) a.occurrences.recentCompletedDates.push(o.date);
+    a.occurrences.recentCompletedDates = a.occurrences.recentCompletedDates.slice(-LIMITS.recentCompletedMax);
+    a.occurrences.recentOccurrences.push({date:o.date, attempted:o.attempted, correct:o.correct, activeSeconds:o.activeSeconds, completed:true, rewardCoins, completedAt:o.completedAt});
+    a.occurrences.recentOccurrences = a.occurrences.recentOccurrences.slice(-LIMITS.recentCompletedMax);
+    a.occurrences.pendingQuestion = null;
+    if(a.schedule === "once") {
+      a.status = "completed";
+    } else {
+      a.occurrences.current = null;
+      a.occurrences.currentOccurrenceDate = null;
+    }
+    a.updatedAt = at || Date.now();
+    p.completed = true;
+    p.completedAt = o.completedAt;
+    p.rewardAwarded = true;
+    p.rewardAwardedAt = o.rewardAwardedAt;
+    p.rewardCoins = rewardCoins;
+    return {assignment:a, completed:true, rewardCoins, progress:p};
+  }
+  function publicQuestion(q){
+    if(!q) return null;
+    return { id:q.id, assignmentId:q.assignmentId, occurrenceDate:q.occurrenceDate, skillId:q.skillId, skillLabel:q.skillLabel, skillGrade:q.skillGrade, questionNumber:q.questionNumber, qHTML:q.qHTML, tip:q.tip || "", choices:(q.choices || []).map(c => ({id:c.id,h:c.h})) };
+  }
+  function issueQuestion(a, generator, localDate, at){
+    const p = occurrenceProgress(a, localDate);
+    if(p.error) return p;
+    a = p.assignment;
+    if(a.occurrences.pendingQuestion && !a.occurrences.pendingQuestion.answered) return {assignment:a, question:publicQuestion(a.occurrences.pendingQuestion), resumed:true};
+    if(a.occurrences.current && a.occurrences.current.completed) return {error:"assignment_occurrence_completed", assignment:a};
+    const idx = Number(a.occurrences.current.attempted || 0) % Math.max(1, a.skillIds.length);
+    const skillId = a.skillIds[idx], skill = C.BY_ID[skillId];
+    const q = skill && generator ? generator(skillId, a.id + ":" + p.occurrence.date + ":" + Number(a.occurrences.current.attempted || 0)) : null;
+    if(!skill || !q || !Array.isArray(q.choices)) return {error:"question_unavailable", assignment:a};
+    const okIndex = q.choices.findIndex(c => c && c.ok);
+    if(okIndex < 0) return {error:"question_unavailable", assignment:a};
+    const questionId = "asg-" + idSafe(a.id) + "-" + idSafe(p.occurrence.date) + "-q" + (Number(a.occurrences.current.attempted || 0) + 1) + "-" + (at || Date.now());
+    a.occurrences.pendingQuestion = {
+      id:questionId, assignmentId:a.id, occurrenceDate:p.occurrence.date, skillId, skillLabel:skill.label, skillGrade:skill.grade,
+      questionNumber:Number(a.occurrences.current.attempted || 0) + 1,
+      qHTML:q.qHTML, tip:q.tip || "",
+      choices:q.choices.map((c,i) => ({id:choiceId(questionId, i), h:c.h})),
+      correctChoiceId:choiceId(questionId, okIndex),
+      issuedAt:at || Date.now(),
+      answered:false,
+    };
+    return {assignment:a, question:publicQuestion(a.occurrences.pendingQuestion), resumed:false};
+  }
+  function answerQuestion(a, questionId, choiceId, localDate, at){
+    const p = occurrenceProgress(a, localDate);
+    if(p.error) return p;
+    a = p.assignment;
+    const q = a.occurrences.pendingQuestion;
+    if(!q || q.answered) return {error:"question_required", assignment:a};
+    if(q.id !== String(questionId || "")) return {error:"stale_question", assignment:a};
+    const choice = (q.choices || []).find(c => c.id === String(choiceId || ""));
+    if(!choice) return {error:"invalid_choice", assignment:a};
+    if(q.occurrenceDate !== a.occurrences.current.date) return {error:"invalid_occurrence", assignment:a};
+    const correct = choice.id === q.correctChoiceId;
+    q.answered = true;
+    q.answeredAt = at || Date.now();
+    a.occurrences.current.attempted++;
+    if(correct) a.occurrences.current.correct++;
+    a.occurrences.pendingQuestion = null;
+    const done = markCompleteIfReady(a, at);
+    return {assignment:done.assignment, correct, skillId:q.skillId, occurrenceDate:q.occurrenceDate, completed:done.completed, rewardCoins:done.rewardCoins, progress:done.progress};
+  }
+  function addActiveTime(a, eventId, seconds, localDate, at){
+    const p = occurrenceProgress(a, localDate);
+    if(p.error) return p;
+    a = p.assignment;
+    if(a.targetType !== "minutes") return {error:"assignment_not_time_based", assignment:a};
+    const n = Number(seconds || 0);
+    if(!Number.isFinite(n) || n <= 0) return {error:"invalid_seconds", assignment:a};
+    if(n > Daily.MAX_HEARTBEAT_SECONDS) return {error:"seconds_too_large", assignment:a};
+    a.occurrences.recentEventIds = Array.isArray(a.occurrences.recentEventIds) ? a.occurrences.recentEventIds.slice(-Daily.MAX_RECENT_EVENTS) : [];
+    const id = String(eventId || "");
+    if(!id) return {error:"event_required", assignment:a};
+    if(a.occurrences.recentEventIds.includes(id)) return {assignment:a, duplicate:true, progress:assignmentProgressSummary(a)};
+    a.occurrences.recentEventIds.push(id);
+    a.occurrences.recentEventIds = a.occurrences.recentEventIds.slice(-Daily.MAX_RECENT_EVENTS);
+    a.occurrences.current.activeSeconds += Math.floor(n);
+    const done = markCompleteIfReady(a, at);
+    return {assignment:done.assignment, duplicate:false, completed:done.completed, rewardCoins:done.rewardCoins, progress:done.progress};
   }
   function createAssignment(list, input, options){
     options = options || {};
@@ -311,6 +501,7 @@
       dueDate:a.dueDate,
       endDate:a.endDate,
       reward:a.reward,
+      progress:assignmentProgressSummary(a, options.localDate),
       createdAt:a.createdAt,
       updatedAt:a.updatedAt,
       nextOccurrenceDate:a.occurrences && a.occurrences.nextOccurrenceDate || null,
@@ -330,8 +521,9 @@
   const api = {
     WEEKDAYS, LIMITS, groupId, groupCatalog, normalizeWeekdays, skillsForGroups, resolveScope,
     rewardFor, validateInput, normalizeAssignment, normalizeList, refreshOccurrence, nextOccurrenceDate,
-    scheduleStatus, createAssignment, updateAssignment, archiveAssignment, summarizeAssignment,
-    summarizeList, activeSummaries, signature,
+    scheduleStatus, occurrenceProgress, assignmentProgressSummary, issueQuestion, publicQuestion,
+    answerQuestion, addActiveTime, markCompleteIfReady, createAssignment, updateAssignment,
+    archiveAssignment, summarizeAssignment, summarizeList, activeSummaries, signature,
   };
   if(typeof module !== "undefined" && module.exports) module.exports = api;
   root.NINJA_ASSIGNMENTS = api;

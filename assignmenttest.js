@@ -20,7 +20,7 @@ const group = A.groupId("4", "Fractions");
   ck(r.assignment.title && /20/.test(r.assignment.title), "auto title works");
   ck(r.assignment.reward.coins >= A.LIMITS.rewardMin && r.assignment.reward.coins <= A.LIMITS.rewardMax, "reward bounded");
 
-  r = A.createAssignment([], { skillIds:["4.multiMultiply"], targetType:"minutes", target:15, minimumAccuracy:80, schedule:"weekdays", weekdays:["mon","wed","fri"], endDate:"2026-08-31" }, { effectiveDate:date, now:2000, id:"asg_time" });
+  r = A.createAssignment([], { skillIds:["4.multiMultiply"], targetType:"minutes", target:15, schedule:"weekdays", weekdays:["mon","wed","fri"], endDate:"2026-08-31" }, { effectiveDate:date, now:2000, id:"asg_time" });
   ck(!r.error && r.assignment.targetType === "minutes", "create valid time assignment");
   ck(r.assignment.weekdays.join(",") === "mon,wed,fri", "weekdays schedule normalizes");
   ck(A.nextOccurrenceDate(r.assignment, date) === "2026-08-07", "next occurrence calculation");
@@ -41,12 +41,13 @@ const group = A.groupId("4", "Fractions");
   ck(A.createAssignment([], { skillIds:["4.multiMultiply"], targetType:"problems", target:0 }, { effectiveDate:date }).error === "invalid_target", "invalid problem target rejected");
   ck(A.createAssignment([], { skillIds:["4.multiMultiply"], targetType:"minutes", target:121 }, { effectiveDate:date }).error === "invalid_target", "invalid minute target rejected");
   ck(A.createAssignment([], { skillIds:["4.multiMultiply"], targetType:"problems", target:10, minimumAccuracy:40 }, { effectiveDate:date }).error === "invalid_accuracy", "invalid accuracy rejected");
+  ck(A.createAssignment([], { skillIds:["4.multiMultiply"], targetType:"minutes", target:10, minimumAccuracy:80 }, { effectiveDate:date }).error === "accuracy_not_supported_for_time", "minimum accuracy rejected for time assignments");
   ck(A.createAssignment([], { skillIds:["4.multiMultiply"], targetType:"problems", target:10, dueDate:"2026-02-30" }, { effectiveDate:date }).error === "invalid_due_date", "impossible date rejected");
   ck(A.createAssignment([], { skillIds:["4.multiMultiply"], targetType:"problems", target:10, schedule:"weekdays", weekdays:["noday"] }, { effectiveDate:date }).error === "invalid_weekday", "invalid weekday rejected");
   ck(A.createAssignment([], { skillIds:["4.multiMultiply"], targetType:"problems", target:10, schedule:"weekdays", weekdays:["mon"], endDate:"2026-08-01" }, { effectiveDate:date }).error === "end_date_before_start", "end date before start rejected");
 
   const small = A.createAssignment([], { skillIds:["k.count100"], targetType:"problems", target:1 }, { effectiveDate:date, now:5000, id:"small" }).assignment;
-  const large = A.createAssignment([], { skillIds:["5.logic","5.wordProblems","5.decimalOps"], targetType:"minutes", target:120, minimumAccuracy:100 }, { effectiveDate:date, now:6000, id:"large" }).assignment;
+  const large = A.createAssignment([], { skillIds:["5.logic","5.wordProblems","5.decimalOps"], targetType:"problems", target:200, minimumAccuracy:100 }, { effectiveDate:date, now:6000, id:"large" }).assignment;
   ck(small.reward.coins < large.reward.coins && large.reward.coins <= A.LIMITS.rewardMax, "reward scales modestly with effort and difficulty");
 
   let list = [];
@@ -79,10 +80,10 @@ const group = A.groupId("4", "Fractions");
   res = await call({ action:"report", name:"AssignKid", pin:"1234", localDate:date });
   ck(res.status === 200 && res.body.assignments.length === 1 && !("notes" in res.body.assignments[0]), "student gets sanitized active assignment summaries");
 
-  res = await call({ action:"parent_update_assignment", name:"AssignKid", pin:"1234", childName:"AssignKid", assignmentId, localDate:date, assignment:{ skillIds:["4.longDivision"], targetType:"minutes", target:15, schedule:"weekdays", weekdays:["tue"], endDate:"2026-08-31", minimumAccuracy:80, notes:"updated private note" } });
+  res = await call({ action:"parent_update_assignment", name:"AssignKid", pin:"1234", childName:"AssignKid", assignmentId, localDate:date, assignment:{ skillIds:["4.longDivision"], targetType:"minutes", target:15, schedule:"weekdays", weekdays:["tue"], endDate:"2026-08-31", notes:"updated private note" } });
   ck(res.status === 403 && res.body.error === "wrong_account_type", "child cannot edit assignment");
 
-  res = await call({ action:"parent_update_assignment", parentName:"AssignParent", parentPin:"2222", childName:"AssignKid", assignmentId, localDate:date, assignment:{ skillIds:["4.longDivision"], targetType:"minutes", target:15, schedule:"weekdays", weekdays:["tue"], endDate:"2026-08-31", minimumAccuracy:80, notes:"updated private note" } });
+  res = await call({ action:"parent_update_assignment", parentName:"AssignParent", parentPin:"2222", childName:"AssignKid", assignmentId, localDate:date, assignment:{ skillIds:["4.longDivision"], targetType:"minutes", target:15, schedule:"weekdays", weekdays:["tue"], endDate:"2026-08-31", notes:"updated private note" } });
   ck(res.status === 200 && res.body.assignment.targetType === "minutes" && res.body.assignment.skillIds[0] === "4.longDivision", "linked parent can edit assignment");
   ck(res.body.assignment.notes === "updated private note", "edit preserves parent-visible note");
 
