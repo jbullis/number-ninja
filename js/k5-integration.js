@@ -1,10 +1,11 @@
 /* K-5 integration layer for the original single-file game.
- * Loaded after index.html by Pages middleware so the existing game remains untouched.
+ * Loaded after index.html so the existing game remains lightweight.
  */
 (function(){
   'use strict';
   if(!window.NINJA_CURRICULUM) return;
   const C=window.NINJA_CURRICULUM;
+  const P=window.NINJA_PLACEMENT;
   const PROFILE={controls:{homeGrade:'4',allowAboveGrade:true,audioInstructions:false,skillOverrides:{}},accountType:'student'};
   window.NINJA_PROFILE=PROFILE;
   let signupMode=false;
@@ -44,6 +45,82 @@
         const a=ri(1,20),b=ri(1,20),ans=a+b;return q(id,'<div class="qBig">'+a+' + '+b+' = ?</div>',ans,[ans+1,ans-1,ans+2],s.label);
       }
     }
+  }
+
+  function ensurePlacementUi(){
+    if(!P || document.getElementById('placementOverlay')) return;
+    const style=document.createElement('style');
+    style.textContent='.plcOverlay{position:fixed;inset:0;z-index:80;background:rgba(5,8,30,.94);display:none;align-items:center;justify-content:center;padding:18px}.plcOverlay.on{display:flex}.plcCard{width:min(760px,100%);max-height:92vh;overflow:auto;background:#111842;border:1px solid #2c3577;border-radius:18px;padding:18px;box-shadow:0 20px 60px rgba(0,0,0,.45);text-align:center}.plcGlyph{font-size:46px}.plcTitle{font-size:26px;font-weight:900;color:#ffb020;margin:5px 0}.plcSub{color:#c8d0ff;font-size:14px;line-height:1.45;margin:6px auto 14px;max-width:560px}.plcActions{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-top:14px}.plcBtn{border:0;border-radius:12px;padding:12px 16px;font-weight:900;background:#303b86;color:#fff}.plcBtn.good{background:#17633d}.plcBtn.ghost{background:#0d1340;border:1px solid #2c3577}.plcProgress{font-size:12px;color:#9aa3d8;font-weight:900;margin:0 0 10px}.plcQ{background:#0d1340;border:1px solid #2c3577;border-radius:15px;padding:14px;margin:12px 0}.plcAnswers{display:grid;grid-template-columns:1fr 1fr;gap:10px}.plcAns{border:1px solid #343e8f;border-radius:14px;background:#1b2258;color:#fff;font-size:20px;font-weight:900;padding:15px}.plcAns:disabled{opacity:.7}.plcDone{color:#8cf0b2;font-weight:900;margin-top:8px}';
+    document.head.appendChild(style);
+    const el=document.createElement('div');el.id='placementOverlay';el.className='plcOverlay';
+    el.innerHTML='<div class="plcCard"><div id="plcBody"></div></div>';
+    document.body.appendChild(el);
+  }
+  function placementState(){ return P ? P.normalizePlacement((PROFILE.controls||{}).placement, (PROFILE.controls||{}).homeGrade||'4') : null; }
+  function shouldOfferPlacement(created){
+    if(!P || !SYNC || !SYNC.online) return false;
+    const p=placementState();
+    return p && p.recommended!==false && (p.status==='not_started' || p.status==='in_progress') && (created || p.retakeRequestedAt || p.status==='in_progress');
+  }
+  let plcCurrent=null;
+  function showPlacementOffer(){
+    ensurePlacementUi();
+    const o=document.getElementById('placementOverlay'), b=document.getElementById('plcBody');
+    o.classList.add('on');
+    const c=controls(), p=placementState();
+    b.innerHTML='<div class="plcGlyph">ðŸ§­</div><div class="plcTitle">Find Your Best Starting Path</div>'+
+      '<div class="plcSub">This short check looks at '+P.bands(c.homeGrade||'4').map(gradeLabel).join(', ')+'. It helps your grown-up choose just-right skills. No coins, streaks, or belts are affected.</div>'+
+      '<div class="plcSub">You can skip it for now and play normally.</div>'+
+      '<div class="plcActions"><button class="plcBtn good" id="plcStart">Start Placement</button><button class="plcBtn ghost" id="plcSkip">Skip for Now</button></div>';
+    document.getElementById('plcStart').onclick=startPlacement;
+    document.getElementById('plcSkip').onclick=skipPlacement;
+  }
+  async function startPlacement(){
+    const r=await apiPost({action:'placement_start',name:SYNC.name,pin:SYNC.pin});
+    if(r.data&&r.data.ok){ PROFILE.controls.placement=r.data.placement; renderPlacementQuestion(r.data.nextSkill); }
+  }
+  async function skipPlacement(){
+    const r=await apiPost({action:'placement_skip',name:SYNC.name,pin:SYNC.pin});
+    if(r.data&&r.data.ok) PROFILE.controls.placement=r.data.placement;
+    document.getElementById('placementOverlay').classList.remove('on');
+    renderHome();
+  }
+  function renderPlacementQuestion(skillId){
+    ensurePlacementUi();
+    const p=placementState(), skill=C.BY_ID[skillId];
+    plcCurrent={skillId,q:genSkill(skillId)};
+    const b=document.getElementById('plcBody');
+    b.innerHTML='<div class="plcProgress">Question '+((p.responses&&p.responses.total||0)+1)+' · The check stops when there is enough evidence</div>'+
+      '<div class="plcTitle">'+(skill?skill.label:'Placement question')+'</div>'+
+      '<div class="plcSub">'+(skill?gradeLabel(skill.grade):'')+' · No rewards or penalties here.</div>'+
+      '<div class="plcQ">'+plcCurrent.q.qHTML+'</div><div class="plcAnswers" id="plcAnswers"></div><div class="plcDone" id="plcMsg"></div>';
+    const wrap=document.getElementById('plcAnswers');
+    plcCurrent.q.choices.forEach((c,i)=>{
+      const btn=document.createElement('button');btn.className='plcAns';btn.innerHTML=c.h;btn.onclick=()=>answerPlacement(i,btn);wrap.appendChild(btn);
+    });
+  }
+  async function answerPlacement(i,btn){
+    if(!plcCurrent) return;
+    document.querySelectorAll('.plcAns').forEach(b=>b.disabled=true);
+    const ok=!!plcCurrent.q.choices[i].ok;
+    btn.style.borderColor=ok?'#4ade80':'#ff6b7a';
+    const r=await apiPost({action:'placement_progress',name:SYNC.name,pin:SYNC.pin,skillId:plcCurrent.skillId,correct:ok});
+    if(!(r.data&&r.data.ok)){ document.getElementById('plcMsg').textContent='Could not save that answer. Try again in a moment.'; return; }
+    PROFILE.controls.placement=r.data.placement;
+    if(r.data.stop){
+      const done=await apiPost({action:'placement_complete',name:SYNC.name,pin:SYNC.pin});
+      if(done.data&&done.data.ok) PROFILE.controls.placement=done.data.placement;
+      showPlacementDone();
+    } else {
+      setTimeout(()=>renderPlacementQuestion(r.data.nextSkill),550);
+    }
+  }
+  function showPlacementDone(){
+    const b=document.getElementById('plcBody');
+    b.innerHTML='<div class="plcGlyph">âœ¨</div><div class="plcTitle">Placement Complete</div>'+
+      '<div class="plcSub">Nice focus. Number Ninja has enough information to help your grown-up choose a good practice path.</div>'+
+      '<div class="plcSub">You can keep playing now.</div><div class="plcActions"><button class="plcBtn good" id="plcDoneBtn">Back to Dojo</button></div>';
+    document.getElementById('plcDoneBtn').onclick=()=>{document.getElementById('placementOverlay').classList.remove('on');renderHome();show('home')};
   }
 
   C.SKILLS.forEach(s=>{
@@ -143,6 +220,12 @@
   if(profile&&!document.getElementById('homeGradeBadge')){const d=document.createElement('div');d.id='homeGradeBadge';d.style.cssText='font-size:11px;font-weight:900;color:#22d3ee;border:1px solid #2c3577;border-radius:999px;padding:5px 9px;white-space:nowrap';profile.appendChild(d)}
   const oldRenderHome=renderHome;
   renderHome=function(){oldRenderHome();const e=document.getElementById('homeGradeBadge');if(e)e.textContent=gradeLabel(controls().homeGrade||'4')};
+
+  const oldEnterDojo=enterDojo;
+  enterDojo=function(created,offline){
+    oldEnterDojo(created,offline);
+    if(shouldOfferPlacement(created)) setTimeout(showPlacementOffer, created?2100:500);
+  };
 
   // Improve Phase 1 login errors without rewriting the original screen.
   const originalLoginClick=loginBtn&&loginBtn.onclick;

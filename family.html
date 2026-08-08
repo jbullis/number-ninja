@@ -137,10 +137,11 @@ function renderChildren(children){
   $('children').innerHTML=children.length?'':'<div class="muted">No linked children yet. Create a child or link an existing student above.</div>';
   children.forEach(c=>{
     const el=document.createElement('div');el.className='child';
-    el.innerHTML=`<h3>${esc(c.username)}</h3><span class="pill">${esc(gradeLabel(c.homeGrade))}</span><span class="pill">Level ${Number(c.level||1)}</span><span class="pill">🪙 ${Number(c.coins||0)}</span><div class="actions"><button class="btn ghost settings">Settings</button><button class="btn ghost report">Progress</button></div><div class="detail hidden"></div>`;
+    el.innerHTML=`<h3>${esc(c.username)}</h3><span class="pill">${esc(gradeLabel(c.homeGrade))}</span><span class="pill">Level ${Number(c.level||1)}</span><span class="pill">🪙 ${Number(c.coins||0)}</span><div class="actions"><button class="btn ghost settings">Settings</button><button class="btn ghost report">Progress</button><button class="btn ghost placement">Placement</button></div><div class="detail hidden"></div>`;
     const d=el.querySelector('.detail');
     el.querySelector('.settings').onclick=()=>openSettings(c.username,d);
     el.querySelector('.report').onclick=()=>openReport(c.username,d);
+    el.querySelector('.placement').onclick=()=>openPlacement(c.username,d);
     $('children').appendChild(el);
   });
 }
@@ -157,6 +158,33 @@ async function openSettings(childName,d){
 }
 async function openReport(childName,d){
   try{const j=await post(parentBody('parent_report',{childName}));const data=j.data||{};const p=data.progress||{};const solved=p.solved?Object.keys(p.solved).length:0;resetIdle();d.classList.remove('hidden');d.innerHTML=`<b>Progress snapshot</b><div class="muted" style="margin-top:6px">Home grade: ${esc(gradeLabel(j.controls&&j.controls.homeGrade||'4'))}<br>Level: ${Number(data.level||1)} · Coins: ${Number(data.coins||0)} · Workbook problems solved: ${solved}<br>Placement: ${esc(j.controls&&j.controls.placement&&j.controls.placement.status||'not started')}</div>`}catch(e){d.classList.remove('hidden');d.textContent=friendly(e)}
+}
+function recLabel(r){return ({keep_current_path:'Keep current path',strengthen_prerequisite:'Strengthen prerequisite',start_at_current_skill:'Start here',unlock_advanced_skill:'Unlock advanced skill',recommend_above_grade_skill:'Recommend above-grade skill',recommend_lower_skill_reinforcement:'Reinforcement practice'})[r.action]||String(r.action||'Review')}
+async function openPlacement(childName,d){
+  try{
+    const j=await post(parentBody('parent_report',{childName}));resetIdle();
+    const c=j.controls||{},p=c.placement||{status:'not_started'},recs=p.recommendations||[];
+    d.classList.remove('hidden');
+    let html=`<b>Placement</b><div class="muted" style="margin-top:6px">Status: ${esc((p.status||'not_started').replaceAll('_',' '))}<br>Last taken: ${p.lastTaken?new Date(p.lastTaken).toLocaleString():'Never'}<br>Attempt: ${Number(p.attempt||0)}</div>`;
+    html+=`<div class="actions"><button class="btn good retake">Retake Placement</button>${p.undoSnapshot?'<button class="btn ghost undo">Undo last applied placement</button>':''}</div>`;
+    if(p.status==='completed'&&recs.length){
+      html+='<div class="detail" style="display:block"><b>Recommendation preview</b><div class="muted">Choose exactly which changes to apply. Mastery, coins, belts, and home grade are not changed.</div>';
+      recs.forEach(r=>{
+        const can=!!r.recommendedOverride;
+        html+=`<label class="toggle" style="align-items:flex-start;margin-top:10px"><input type="checkbox" class="recPick" value="${esc(r.id)}" ${can?'checked':'disabled'}><span><b>${esc(r.skillLabel||r.skillId)}</b> <span class="pill">${esc(gradeLabel(r.skillGrade))}</span><br><span class="muted">Current: ${esc(r.currentState||'unchanged')}<br>Recommendation: ${esc(recLabel(r))}${r.recommendedOverride?' → '+esc(r.recommendedOverride):' (no setting change)'}<br>Evidence: ${Number(r.evidence&&r.evidence.correct||0)}/${Number(r.evidence&&r.evidence.attempted||0)} correct. ${esc(r.reason||'')}</span></span></label>`;
+      });
+      html+='<div class="actions"><button class="btn good applyAll">Accept all applicable</button><button class="btn good applySelected">Accept selected</button></div></div>';
+    }else{
+      html+='<div class="muted" style="margin-top:10px">Recommendations appear here after the student completes placement.</div>';
+    }
+    html+='<div class="status msg"></div>';
+    d.innerHTML=html;
+    d.querySelector('.retake').onclick=async()=>{try{await post(parentBody('reset_placement',{childName}));d.querySelector('.msg').textContent='Retake requested. The student will see placement at next login.';resetIdle();await loadChildren()}catch(e){d.querySelector('.msg').textContent=friendly(e)}};
+    const undo=d.querySelector('.undo');if(undo)undo.onclick=async()=>{try{const r=await post(parentBody('undo_placement_recommendations',{childName}));d.querySelector('.msg').textContent='Undo complete. Restored '+(r.restored||[]).length+' placement-driven setting(s).';resetIdle();await openPlacement(childName,d)}catch(e){d.querySelector('.msg').textContent=friendly(e)}};
+    const apply=async(ids)=>{try{const r=await post(parentBody('apply_placement_recommendations',{childName,recommendationIds:ids}));d.querySelector('.msg').textContent='Applied '+(r.applied||[]).length+' recommendation(s).';resetIdle();await openPlacement(childName,d)}catch(e){d.querySelector('.msg').textContent=friendly(e)}};
+    const all=d.querySelector('.applyAll');if(all)all.onclick=()=>apply(recs.filter(r=>r.recommendedOverride).map(r=>r.id));
+    const sel=d.querySelector('.applySelected');if(sel)sel.onclick=()=>apply([...d.querySelectorAll('.recPick:checked')].map(x=>x.value));
+  }catch(e){d.classList.remove('hidden');d.textContent=friendly(e)}
 }
 $('loginBtn').onclick=login;$('createParentBtn').onclick=createParent;$('createChildBtn').onclick=createChild;$('linkChildBtn').onclick=linkChild;$('refreshBtn').onclick=loadChildren;$('logoutBtn').onclick=()=>lockParent(false);
 $('pPin').addEventListener('keydown',e=>{if(e.key==='Enter')login()});
