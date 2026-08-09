@@ -1862,6 +1862,10 @@ function coinEventId(reason){ return 'coin-'+reason+'-'+Date.now()+'-'+Math.rand
 async function serverCoinEarn(reason, meta){
   if(!SYNC.name||!SYNC.online||!reason) return;
   try{
+    if(reason==='story_level_complete'){
+      SYNC.dirty=true;
+      await flushSave();
+    }
     const payload=Object.assign({action:'coin_earn',name:SYNC.name,pin:SYNC.pin,localDate:clientLocalDate(),eventId:coinEventId(reason),reason}, meta||{});
     const r=await apiPost(payload);
     if(r.data&&r.data.ok){
@@ -2656,7 +2660,7 @@ function levelComplete(){
   let wr=0; Object.values(S.byTopic).forEach(a=>{ wr+=a.n-a.ok; });
   if(!old || stars>old.stars) S.progress.story[key]={stars:stars, ft:S.runFirst, wr:wr};
   const bonus=30+10*stars;
-  addCoins(bonus, 'story_level_complete', {stars});
+  addCoins(bonus, 'story_level_complete', {stars, levelKey:key});
   gainXP(60);
   confetti(); sBossDown();
   const starTxt='★'.repeat(stars)+'<span style="opacity:.25">'+'★'.repeat(3-stars)+'</span>';

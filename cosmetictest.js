@@ -75,7 +75,8 @@ ck(controls.cosmetics.equipped.avatar === "e:Ninja" && controls.cosmetics.equipp
 (async()=>{
   let r;
   await call({action:"register_student", name:"CosKid", pin:"1234", grade:"4"});
-  r = await call({action:"coin_earn", name:"CosKid", pin:"1234", localDate:"2026-08-08", eventId:"cos-earn-1", reason:"story_level_complete", stars:3});
+  await call({action:"save", name:"CosKid", pin:"1234", data:{coins:0, progress:{topics:{},mastery:{},story:{C1:{stars:3,ft:1,wr:0}}}}});
+  r = await call({action:"coin_earn", name:"CosKid", pin:"1234", localDate:"2026-08-08", eventId:"cos-earn-1", reason:"story_level_complete", levelKey:"C1", stars:1});
   ck(r.status === 200 && r.body.coins === 60, "server reward creates cosmetic spending balance");
   r = await call({action:"save", name:"CosKid", pin:"1234", data:{coins:60, progress:{topics:{},mastery:{}}, owned:["e:Wizard"], ownedEffects:["rainbow"], skin:"e:Wizard", effect:"rainbow", inventory:{freehint:2}}});
   ck(r.status === 200 && r.body.data.coins === 60, "same-balance legacy save preserved");
