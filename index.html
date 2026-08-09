@@ -1862,7 +1862,7 @@ function coinEventId(reason){ return 'coin-'+reason+'-'+Date.now()+'-'+Math.rand
 async function serverCoinEarn(reason, meta){
   if(!SYNC.name||!SYNC.online||!reason) return;
   try{
-    if(reason==='story_level_complete'){
+    if(['practice_correct','practice_hint','practice_retry','practice_variant','daily_bonus','story_level_complete'].includes(reason)){
       SYNC.dirty=true;
       await flushSave();
     }
@@ -2576,11 +2576,10 @@ function answer(i,btn){
         if(S.mode==='story'){ setTimeout(()=>$('battleBar').classList.remove('on'), 400); setTimeout(levelComplete, 1100); return; }
         S.bossMode=false;
         S.nextBossAt=S.correctCount+8;
-        addCoins(25, 'boss_clear');
         gainXP(50);
         confetti(); sBossDown();
         $('ovCard').className='ovCard';
-        overlay('<div class="ovGlyph">🏆</div><div class="ovBig">AREA CLEARED!</div><div class="bossTaunt">'+b.win+'</div><div class="ovSub">+25 coins · +50 XP<br>Unstoppable'+(S.name?', '+S.name:'')+'!</div>', 2400,
+        overlay('<div class="ovGlyph">🏆</div><div class="ovBig">AREA CLEARED!</div><div class="bossTaunt">'+b.win+'</div><div class="ovSub">+50 XP<br>Unstoppable'+(S.name?', '+S.name:'')+'!</div>', 2400,
           S.solved>=MISSION_TARGET? endRun : ()=>{ spawnMonster(); nextQuestion(); });
         return;
       }
@@ -2639,10 +2638,9 @@ function gainXP(n){
   while(S.xp>=xpNeed(S.level)){
     S.xp-=xpNeed(S.level);
     S.level++;
-    grantCoins(20, 'level_up');
     confetti(); sLevel();
     $('ovCard').className='ovCard';
-    overlay('<div class="ovGlyph">'+skinHTML(S.skin)+'</div><div class="ovBig">LEVEL '+S.level+'!</div><div class="ovSub">Rank: '+rankFor(S.level)+'<br>+20 coins!</div>', 2000, null);
+    overlay('<div class="ovGlyph">'+skinHTML(S.skin)+'</div><div class="ovBig">LEVEL '+S.level+'!</div><div class="ovSub">Rank: '+rankFor(S.level)+'</div>', 2000, null);
     scheduleSave();
   }
   updateHUD();
@@ -2659,15 +2657,13 @@ function levelComplete(){
   const old=S.progress.story[key];
   let wr=0; Object.values(S.byTopic).forEach(a=>{ wr+=a.n-a.ok; });
   if(!old || stars>old.stars) S.progress.story[key]={stars:stars, ft:S.runFirst, wr:wr};
-  const bonus=30+10*stars;
-  addCoins(bonus, 'story_level_complete', {stars, levelKey:key});
   gainXP(60);
   confetti(); sBossDown();
   const starTxt='★'.repeat(stars)+'<span style="opacity:.25">'+'★'.repeat(3-stars)+'</span>';
   $('ovCard').className='ovCard';
   overlay('<div class="ovGlyph">🏆</div><div class="ovBig">'+levelName(S.levelIdx).toUpperCase()+' COMPLETE!</div>'+
     '<div style="font-size:34px; color:var(--gold); margin-top:6px">'+starTxt+'</div>'+
-    '<div class="ovSub">+'+bonus+' coins · +60 XP</div>', 2600, endRun);
+    '<div class="ovSub">+60 XP</div>', 2600, endRun);
   scheduleSave();
 }
 let ovTimer=null;

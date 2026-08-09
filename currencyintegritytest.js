@@ -14,6 +14,9 @@ async function setup(name){
 async function earn(name, eventId, reason, extra){
   return call(Object.assign({action:"coin_earn", name, pin:"1234", localDate:"2026-08-08", eventId, reason}, extra || {}));
 }
+async function savePractice(name, solved, wrongs){
+  return call({action:"save", name, pin:"1234", data:{coins:recFor(name).data && recFor(name).data.coins || 0, level:2, stats:{totalCorrect:solved}, progress:{topics:{"4.multiMultiply":{solved, first:solved, wrongs:wrongs || 0, tutors:0}}, mastery:{"4.multiMultiply":Math.min(100, solved * 3)}}}});
+}
 async function parentSetup(prefix){
   await call({action:"register_parent", name:prefix+"Parent", pin:"2222"});
   await call({action:"register_student", name:prefix+"Kid", pin:"1234", grade:"4"});
@@ -29,6 +32,7 @@ async function parentSetup(prefix){
   r = await call({action:"save", name:kid, pin:"1234", data:{coins:400, level:2, progress:{topics:{},mastery:{}}}});
   ck(r.status === 200 && r.body.data.coins === 0, "repeated saves cannot mint coins");
 
+  await savePractice(kid, 1, 0);
   r = await earn(kid, "earn-1", "practice_correct", {tier:99, boosted:true});
   ck(r.status === 200 && r.body.awarded === 3 && r.body.coins === 3, "legitimate supported practice reward pays constrained amount");
   r = await earn(kid, "earn-1", "practice_correct", {tier:99, boosted:true});
@@ -49,17 +53,24 @@ async function parentSetup(prefix){
   ck(r.status === 200 && r.body.data.coins === 13, "general save cannot increase coins");
   r = await call({action:"save", name:kid, pin:"1234", data:{coins:25, level:2, progress:{topics:{},mastery:{}}}});
   ck(r.status === 200 && r.body.data.coins === 13, "higher lower-balance save cannot increase from canonical");
-  r = await call({action:"save", name:kid, pin:"1234", data:{coins:5, level:2, progress:{topics:{},mastery:{},story:{C1:{stars:1,ft:1,wr:0}}}}});
+  r = await call({action:"save", name:kid, pin:"1234", data:{coins:5, level:2, progress:{topics:{"4.multiMultiply":{solved:1,first:1,wrongs:0,tutors:0}},mastery:{},story:{C1:{stars:1,ft:1,wr:0}}}}});
   ck(r.status === 200 && r.body.data.coins === 5, "legacy lower-balance save is retained for client-side spending");
 
   r = await earn(kid, "story-1", "story_level_complete", {levelKey:"C1", stars:3});
-  ck(r.status === 200 && r.body.awarded === 40 && r.body.coins === 45, "story reward derives stars from saved progress, not client stars");
+  ck(r.status === 400 && r.body.error === "progression_evidence_required", "story reward cannot use forgeable saved progress");
   r = await earn(kid, "story-2", "story_level_complete", {levelKey:"C1", stars:3});
-  ck(r.status === 200 && r.body.duplicate && r.body.coins === 45, "same story milestone cannot pay twice");
-  await earn(kid, "earn-2", "practice_correct", {tier:5, boosted:true});
-  ck(recFor(kid).data.coins === 48, "client boosted/tier cannot inflate later practice reward");
+  ck(r.status === 400 && r.body.error === "progression_evidence_required", "same story milestone still cannot pay");
+  await savePractice(kid, 2, 0);
+  r = await earn(kid, "earn-2", "practice_correct", {tier:5, boosted:true});
+  ck(r.status === 200 && recFor(kid).data.coins === 8, "client boosted/tier cannot inflate later practice reward");
   r = await call({action:"cosmetic_purchase", name:kid, pin:"1234", cosmeticId:"glow", requestId:"buy-glow"});
-  ck(r.status === 200 && r.body.coins === 8 && r.body.cosmetics.items.find(i=>i.id==="glow").owned, "cosmetic purchase deducts correctly");
+  ck(r.status === 409 && r.body.error === "insufficient_coins", "cosmetic purchase rejects without enough constrained rewards");
+  for(let i=3;i<=13;i++) {
+    await savePractice(kid, i, 0);
+    await earn(kid, "earn-" + i, "practice_correct");
+  }
+  r = await call({action:"cosmetic_purchase", name:kid, pin:"1234", cosmeticId:"glow", requestId:"buy-glow-2"});
+  ck(r.status === 200 && r.body.coins === 1 && r.body.cosmetics.items.find(i=>i.id==="glow").owned, "cosmetic purchase deducts correctly after legitimate rewards");
   r = await call({action:"cosmetic_purchase", name:kid, pin:"1234", cosmeticId:"sparkle", requestId:"buy-sparkle"});
   ck(r.status === 409 && r.body.error === "insufficient_coins", "insufficient-funds purchase still rejects");
   r = await call({action:"save", name:kid, pin:"1234", data:{coins:45, owned:["e:Wizard"], ownedEffects:["rainbow"], skin:"e:Wizard", effect:"rainbow", progress:{topics:{},mastery:{}}}});

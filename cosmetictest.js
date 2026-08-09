@@ -75,13 +75,15 @@ ck(controls.cosmetics.equipped.avatar === "e:Ninja" && controls.cosmetics.equipp
 (async()=>{
   let r;
   await call({action:"register_student", name:"CosKid", pin:"1234", grade:"4"});
-  await call({action:"save", name:"CosKid", pin:"1234", data:{coins:0, progress:{topics:{},mastery:{},story:{C1:{stars:3,ft:1,wr:0}}}}});
-  r = await call({action:"coin_earn", name:"CosKid", pin:"1234", localDate:"2026-08-08", eventId:"cos-earn-1", reason:"story_level_complete", levelKey:"C1", stars:1});
-  ck(r.status === 200 && r.body.coins === 60, "server reward creates cosmetic spending balance");
-  r = await call({action:"save", name:"CosKid", pin:"1234", data:{coins:60, progress:{topics:{},mastery:{}}, owned:["e:Wizard"], ownedEffects:["rainbow"], skin:"e:Wizard", effect:"rainbow", inventory:{freehint:2}}});
+  for(let i=1;i<=20;i++){
+    await call({action:"save", name:"CosKid", pin:"1234", data:{coins:recFor("CosKid").data && recFor("CosKid").data.coins || 0, stats:{totalCorrect:i}, progress:{topics:{"4.multiMultiply":{solved:i, first:i, wrongs:0, tutors:0}},mastery:{}}}});
+    r = await call({action:"coin_earn", name:"CosKid", pin:"1234", localDate:"2026-08-08", eventId:"cos-earn-"+i, reason:"practice_correct"});
+  }
+  ck(r.status === 200 && r.body.coins === 60, "server practice rewards create cosmetic spending balance");
+  r = await call({action:"save", name:"CosKid", pin:"1234", data:{coins:60, progress:{topics:{"4.multiMultiply":{solved:20, first:20, wrongs:0, tutors:0}},mastery:{}}, owned:["e:Wizard"], ownedEffects:["rainbow"], skin:"e:Wizard", effect:"rainbow", inventory:{freehint:2}}});
   ck(r.status === 200 && r.body.data.coins === 60, "same-balance legacy save preserved");
   ck(!r.body.cosmetics.items.find(i=>i.id==="e:Wizard").owned, "fake ownership save cannot grant catalog cosmetics");
-  ck(r.body.data.inventory.freehint === 2, "legacy power inventory still saves");
+  ck(r.body.data.inventory.freehint === 0, "forged legacy power inventory increase without spending is blocked");
   r = await call({action:"cosmetic_purchase", name:"CosKid", pin:"1234", cosmeticId:"glow", requestId:"buy1", priceCoins:-100});
   ck(r.status === 400 && r.body.error === "client_catalog_not_allowed", "client supplied price rejected");
   r = await call({action:"cosmetic_purchase", name:"CosKid", pin:"1234", cosmeticId:"glow", requestId:"buy2"});
