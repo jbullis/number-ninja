@@ -67,7 +67,7 @@ async function parentCall(body){
   r=await pcall({action:'unlink_child',parentName:'ParentOne',parentPin:'4567',childName:'SecondKid'});
   ck(r.status===200&&!r.body.child.linked,'parent can unlink');
   r=await pcall({action:'report',name:'SecondKid',pin:'3456'});
-  ck(r.status===200&&r.body.data.level===4&&r.body.data.coins===44,'unlink preserves progress');
+  ck(r.status===200&&r.body.data.level===4&&r.body.data.coins===0,'unlink preserves progress without minted coins');
 
   // A legacy record with no controls behaves as a Grade 4 student.
   await pcall({action:'login',name:'LegacyFour',pin:'6789'});

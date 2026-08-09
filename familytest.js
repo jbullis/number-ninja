@@ -57,7 +57,7 @@ async function call(body){
   r=await call({action:'unlink_child',parentName:'MomNinja',parentPin:'1111',childName:'NovaKid'});
   ck(r.status===200&&!r.body.child.linked,'unlink child');
   r=await call({action:'login',name:'NovaKid',pin:'4444'});
-  ck(r.status===200&&r.body.data.coins===321&&!r.body.linkedParent,'unlinked child remains playable');
+  ck(r.status===200&&r.body.data.level===7&&r.body.data.coins===0&&!r.body.linkedParent,'unlinked child remains playable without minted coins');
   r=await call({action:'link_child',parentName:'DadNinja',parentPin:'3333',childName:'NovaKid',childPin:'4444'});
   ck(r.status===200,'different parent may link after unlink');
 

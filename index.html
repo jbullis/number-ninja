@@ -1857,13 +1857,30 @@ function coinFly(n, ox, oy){
 function updateCoinCounters(){
   ['hudCoins','homeCoins','shopCoins'].forEach(id=>{ const el=$(id); if(el) el.textContent=S.coins; });
 }
+function clientLocalDate(){ const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+function coinEventId(reason){ return 'coin-'+reason+'-'+Date.now()+'-'+Math.random().toString(36).slice(2,8); }
+async function serverCoinEarn(reason, meta){
+  if(!SYNC.name||!SYNC.online||!reason) return;
+  try{
+    const payload=Object.assign({action:'coin_earn',name:SYNC.name,pin:SYNC.pin,localDate:clientLocalDate(),eventId:coinEventId(reason),reason}, meta||{});
+    const r=await apiPost(payload);
+    if(r.data&&r.data.ok){
+      if(r.data.data) applySave(r.data.data);
+      if(typeof r.data.coins==='number' && r.data.coins>S.coins) S.coins=r.data.coins;
+      if(r.data.cosmetics) applyCosmeticsSummary(r.data.cosmetics);
+      updateCoinCounters();
+      setSyncStatus('saved');
+    }
+  }catch(e){}
+}
 // single funnel for EVERY coin gain -> updates counters + flies coins to the purse
-function grantCoins(n){
+function grantCoins(n, reason, meta){
   if(n<=0) return;
   S.coins+=n; S.runCoins+=n;
   updateCoinCounters();
   const at=S.lastHitXY;
   coinFly(n, at&&at.x, at&&at.y);
+  serverCoinEarn(reason, meta);
 }
 
 /* ---------------- screens ---------------- */
@@ -1874,7 +1891,7 @@ function show(id){
 function xpNeed(lv){ return lv*100; }
 function rankFor(lv){ return RANKS[Math.min(RANKS.length-1, Math.floor((lv-1)/2))]; }
 
-function addCoins(n){ grantCoins(Math.round(n*(S.coinMult||1))); }
+function addCoins(n, reason, meta){ grantCoins(Math.round(n*(S.coinMult||1)), reason, Object.assign({boosted:S.coinMult===2}, meta||{})); }
 function applyAura(el, effectId){
   if(!el) return;
   el.className=el.className.replace(/\s*fx-\w+/g,'');
@@ -2497,10 +2514,10 @@ function answer(i,btn){
       }
     }
     const tier=tierNow();
-    let pts, coinGain;
+    let pts, coinGain, coinReason='practice_retry';
     if(hinted){
       // used a hint: score doesn't go up; small coin reward so it still feels ok
-      S.streak=0; pts=0; coinGain=1;
+      S.streak=0; pts=0; coinGain=1; coinReason='practice_hint';
       comboFlash('GOOD USE OF THE HINT!');
     } else if(!struggled && !variant){
       S.streak++;
@@ -2508,10 +2525,10 @@ function answer(i,btn){
       const mult=Math.min(5, 1+Math.floor(S.streak/3));
       const fast=(performance.now()-S.qStart)<6000;
       pts=(10*tier*mult)+(fast?5:0);
-      coinGain=2+tier;
+      coinGain=2+tier; coinReason='practice_correct';
       if(S.streak>0 && S.streak%3===0) comboFlash('COMBO ×'+mult+'!');
     } else if(variant){
-      pts=5*tier; coinGain=1;
+      pts=5*tier; coinGain=1; coinReason='practice_variant';
       comboFlash('NICE! NOW THE REAL ONE!');
     } else {
       S.streak=1;
@@ -2519,7 +2536,7 @@ function answer(i,btn){
       comboFlash((S.name?S.name.toUpperCase()+', ':'')+'YOU GOT IT!');
     }
     S.score+=pts;
-    addCoins(coinGain);
+    addCoins(coinGain, coinReason, {tier});
     gainXP((struggled||variant?3:5)*tier);
     btn.classList.add('right');
     burst(cx,cy,['#4ade80','#ffb020','#22d3ee','#fff'],20);
@@ -2529,7 +2546,7 @@ function answer(i,btn){
     if(!S.sessionFirstDone && !variant){
       S.sessionFirstDone=true;
       comboFlash('DAILY BONUS +10! 🪙');
-      setTimeout(()=>grantCoins(10), 500);
+      setTimeout(()=>grantCoins(10, 'daily_bonus'), 500);
     }
     updateHUD();
     scheduleSave();
@@ -2555,7 +2572,7 @@ function answer(i,btn){
         if(S.mode==='story'){ setTimeout(()=>$('battleBar').classList.remove('on'), 400); setTimeout(levelComplete, 1100); return; }
         S.bossMode=false;
         S.nextBossAt=S.correctCount+8;
-        addCoins(25);
+        addCoins(25, 'boss_clear');
         gainXP(50);
         confetti(); sBossDown();
         $('ovCard').className='ovCard';
@@ -2618,7 +2635,7 @@ function gainXP(n){
   while(S.xp>=xpNeed(S.level)){
     S.xp-=xpNeed(S.level);
     S.level++;
-    grantCoins(20);
+    grantCoins(20, 'level_up');
     confetti(); sLevel();
     $('ovCard').className='ovCard';
     overlay('<div class="ovGlyph">'+skinHTML(S.skin)+'</div><div class="ovBig">LEVEL '+S.level+'!</div><div class="ovSub">Rank: '+rankFor(S.level)+'<br>+20 coins!</div>', 2000, null);
@@ -2639,7 +2656,7 @@ function levelComplete(){
   let wr=0; Object.values(S.byTopic).forEach(a=>{ wr+=a.n-a.ok; });
   if(!old || stars>old.stars) S.progress.story[key]={stars:stars, ft:S.runFirst, wr:wr};
   const bonus=30+10*stars;
-  addCoins(bonus);
+  addCoins(bonus, 'story_level_complete', {stars});
   gainXP(60);
   confetti(); sBossDown();
   const starTxt='★'.repeat(stars)+'<span style="opacity:.25">'+'★'.repeat(3-stars)+'</span>';

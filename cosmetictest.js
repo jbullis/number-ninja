@@ -75,8 +75,10 @@ ck(controls.cosmetics.equipped.avatar === "e:Ninja" && controls.cosmetics.equipp
 (async()=>{
   let r;
   await call({action:"register_student", name:"CosKid", pin:"1234", grade:"4"});
+  r = await call({action:"coin_earn", name:"CosKid", pin:"1234", localDate:"2026-08-08", eventId:"cos-earn-1", reason:"story_level_complete", stars:3});
+  ck(r.status === 200 && r.body.coins === 60, "server reward creates cosmetic spending balance");
   r = await call({action:"save", name:"CosKid", pin:"1234", data:{coins:60, progress:{topics:{},mastery:{}}, owned:["e:Wizard"], ownedEffects:["rainbow"], skin:"e:Wizard", effect:"rainbow", inventory:{freehint:2}}});
-  ck(r.status === 200 && r.body.data.coins === 60, "reasonable legacy coin save accepted");
+  ck(r.status === 200 && r.body.data.coins === 60, "same-balance legacy save preserved");
   ck(!r.body.cosmetics.items.find(i=>i.id==="e:Wizard").owned, "fake ownership save cannot grant catalog cosmetics");
   ck(r.body.data.inventory.freehint === 2, "legacy power inventory still saves");
   r = await call({action:"cosmetic_purchase", name:"CosKid", pin:"1234", cosmeticId:"glow", requestId:"buy1", priceCoins:-100});
