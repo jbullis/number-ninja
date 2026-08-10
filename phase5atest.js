@@ -124,10 +124,38 @@ async function answerCorrect(name, skillId){
   await call({action:"assignment_start", name:"Phase5AssignKid", pin:"1234", assignmentId, localDate:"2026-08-09"});
   const q = recFor("Phase5AssignKid").controls.assignments.find(a => a.id === assignmentId).occurrences.pendingQuestion;
   r = await call({action:"assignment_answer", name:"Phase5AssignKid", pin:"1234", assignmentId, questionId:q.id, choiceId:q.correctChoiceId, localDate:"2026-08-09"});
-  const hist = activityFor("Phase5AssignKid");
-  ck(hist && hist.attempts.some(a => a.source === "assignment" && a.assignmentId === assignmentId), "assignment answer writes detailed activity source");
+  const hist = await call({action:"activity_history", name:"Phase5AssignKid", pin:"1234", source:"assignment", dateFrom:"2026-08-09"});
+  ck(hist.body.activity.attempts.some(a => a.source === "assignment" && a.assignmentId === assignmentId), "assignment answer writes detailed activity source");
   r = await call({action:"coin_earn", name:"Phase5AssignKid", pin:"1234", localDate:"2026-08-09", eventId:"assignment-stack", reason:"practice_correct"});
   ck(r.status === 400 && r.body.error === "practice_coin_earn_deprecated", "assignment answer cannot double-pay ordinary practice coins");
+
+  await call({action:"register_student", name:"Phase5PlacementKid", pin:"1234", grade:"4"});
+  r = await call({action:"placement_start", name:"Phase5PlacementKid", pin:"1234", localDate:"2026-08-09"});
+  let pq = recFor("Phase5PlacementKid").controls.placement.pendingQuestion;
+  r = await call({action:"placement_progress", name:"Phase5PlacementKid", pin:"1234", questionId:pq.id, choiceId:pq.correctChoiceId});
+  r = await call({action:"activity_history", name:"Phase5PlacementKid", pin:"1234", source:"placement"});
+  ck(r.body.activity.attempts.some(a => a.source === "placement"), "placement answer writes detailed activity source");
+
+  await call({action:"register_student", name:"Phase5MasteryKid", pin:"1234", grade:"4"});
+  let mrec = recFor("Phase5MasteryKid");
+  mrec.data = { progress:{ mastery:{}, topics:{} }, stats:{totalCorrect:0}, coins:0 };
+  mrec.data.progress.mastery = {"3.fluency":90,"4.placeValue":90,"4.multiMultiply":90};
+  mrec.data.progress.topics = {"4.multiMultiply":{solved:20,first:20,wrongs:0,tutors:0}};
+  writeRec("Phase5MasteryKid", mrec);
+  r = await call({action:"mastery_challenge_start", name:"Phase5MasteryKid", pin:"1234", skillId:"4.multiMultiply"});
+  pq = recFor("Phase5MasteryKid").controls.skillMastery.pendingChallenge.pendingQuestion;
+  r = await call({action:"mastery_challenge_answer", name:"Phase5MasteryKid", pin:"1234", questionId:pq.id, choiceId:pq.correctChoiceId});
+  r = await call({action:"activity_history", name:"Phase5MasteryKid", pin:"1234", source:"mastery_challenge"});
+  ck(r.body.activity.attempts.some(a => a.source === "mastery_challenge"), "mastery challenge answer writes detailed activity source");
+  mrec = recFor("Phase5MasteryKid");
+  mrec.controls.skillMastery.pendingChallenge = null;
+  mrec.controls.skillMastery.bySkill["4.multiMultiply"] = {certified:true, certifiedAt:1, reviewDueAt:1};
+  writeRec("Phase5MasteryKid", mrec);
+  r = await call({action:"mastery_review_start", name:"Phase5MasteryKid", pin:"1234", skillId:"4.multiMultiply"});
+  pq = recFor("Phase5MasteryKid").controls.skillMastery.pendingReview.pendingQuestion;
+  r = await call({action:"mastery_review_answer", name:"Phase5MasteryKid", pin:"1234", questionId:pq.id, choiceId:pq.correctChoiceId});
+  r = await call({action:"activity_history", name:"Phase5MasteryKid", pin:"1234", source:"mastery_review"});
+  ck(r.body.activity.attempts.some(a => a.source === "mastery_review"), "mastery review answer writes detailed activity source");
 
   const legacy = await setupStudent("Phase5Legacy", "4");
   r = await call({action:"activity_history", name:legacy, pin:"1234"});
