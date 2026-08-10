@@ -88,10 +88,14 @@ ck(state.history.length === Ach.HISTORY_MAX && state.recentAwards.length === Ach
 const KV = { store:new Map(), async get(k){ return this.store.has(k) ? this.store.get(k) : null; }, async set(k,v){ this.store.set(k,v); }, async delete(k){ this.store.delete(k); } };
 async function call(body){ const r = await api.playerPost({ json:async()=>body }, { store:KV }); return { status:r.status, body:await r.json() }; }
 function recFor(name){ return JSON.parse(KV.store.get("player:" + name.toLowerCase())); }
+function writeRec(name, rec){ KV.store.set("player:" + name.toLowerCase(), JSON.stringify(rec)); }
 
 (async()=>{
   await call({action:"register_student", name:"AchKid", pin:"1234", grade:"4"});
-  let r = await call({action:"save", name:"AchKid", pin:"1234", data:dataWith({"4.multiMultiply":topic(25,0)})});
+  const seeded = recFor("AchKid");
+  seeded.data = dataWith({"4.multiMultiply":topic(25,0)});
+  writeRec("AchKid", seeded);
+  let r = await call({action:"save", name:"AchKid", pin:"1234", data:seeded.data});
   ck(r.status === 200 && r.body.achievements.earnedCount >= 2, "save returns server-evaluated achievements");
   r = await call({action:"achievement_status", name:"AchKid", pin:"1234", localDate:"2026-08-08"});
   ck(r.status === 200 && r.body.achievements.achievements.some(a=>a.id==="practice.25"&&a.earned), "read-only achievement_status returns badges");

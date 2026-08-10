@@ -1896,6 +1896,20 @@ function xpNeed(lv){ return lv*100; }
 function rankFor(lv){ return RANKS[Math.min(RANKS.length-1, Math.floor((lv-1)/2))]; }
 
 function addCoins(n, reason, meta){ grantCoins(Math.round(n*(S.coinMult||1)), reason, Object.assign({boosted:S.coinMult===2}, meta||{})); }
+const SERVER_SKILL_BY_TOPIC={
+  ops:'5.expressions', machine:'4.wordProblems', equation:'5.expressions', fraction:'4.fractionOps',
+  factor:'4.factorsMultiples', shape:'4.measurement', multiply:'4.multiMultiply', angle:'4.angles',
+  compare:'4.fractionCompare', mix:'4.wordProblems'
+};
+function skillForTopic(topic){ return SERVER_SKILL_BY_TOPIC[topic]||'4.multiMultiply'; }
+async function requestServerPracticeQuestion(skillId, mode){
+  if(!SYNC.name||!SYNC.online) return null;
+  try{
+    const r=await apiPost({action:'practice_start',name:SYNC.name,pin:SYNC.pin,localDate:clientLocalDate(),mode:mode||'arena',skillId});
+    if(r.data&&r.data.ok&&r.data.question) return r.data.question;
+  }catch(e){}
+  return null;
+}
 function applyAura(el, effectId){
   if(!el) return;
   el.className=el.className.replace(/\s*fx-\w+/g,'');
@@ -2192,10 +2206,26 @@ function nextQuestion(){
       renderQuestion(GENS[pick(S.levelTopics)](tierNow()));
       return;
     }
+    if(SYNC.online && !S.bossMode){
+      const base=S.levelQs[S.levelPos];
+      requestServerPracticeQuestion(skillForTopic(base.topic),'workbook').then(q=>{
+        if(q) renderQuestion(Object.assign({},q,{serverQuestion:true,topic:base.topic,serverSkillId:q.skillId,wb:true,wbId:base.wbId}));
+        else renderQuestion(base);
+      });
+      return;
+    }
     renderQuestion(S.levelQs[S.levelPos]);
     return;
   }
   if(!S.bossMode && S.correctCount>=S.nextBossAt){ startBoss(false); return; }
+  if(SYNC.online && S.mode==='arena'){
+    const skillId=skillForTopic(S.world&&S.world.id);
+    requestServerPracticeQuestion(skillId,'arena').then(q=>{
+      if(q) renderQuestion(Object.assign({},q,{serverQuestion:true,topic:S.world&&S.world.id||'mix',serverSkillId:q.skillId}));
+      else renderQuestion();
+    });
+    return;
+  }
   renderQuestion();
 }
 // dramatic boss entrance
@@ -2221,6 +2251,13 @@ function startBoss(isLevel){
 // same skill, fresh numbers, used after a tutorial; keeps the learning chain
 function freshQuestion(topic){
   $('tipbar').classList.remove('on','trick');
+  if(SYNC.online && S.mode==='arena'){
+    requestServerPracticeQuestion(skillForTopic(topic),'arena').then(q=>{
+      if(q) renderQuestion(Object.assign({},q,{serverQuestion:true,topic:topic||'mix',serverSkillId:q.skillId}));
+      else renderQuestion(GENS[topic](tierNow()));
+    });
+    return;
+  }
   renderQuestion(GENS[topic](tierNow()));
 }
 // generate a question we have not shown recently (best effort, avoids repeats within a session)
@@ -2238,6 +2275,7 @@ function renderQuestion(forcedQ){
   const chip=$('topicchip');
   chip.textContent=(S.bossMode?'🔥 BOSS · ':'')+(TOPICNAMES[q.topic]||'Math');
   chip.style.setProperty('--wc',TOPICCOLORS[q.topic]||'#9aa3d8');
+  if(q.serverQuestion) chip.textContent=(S.bossMode?'BOSS - ':'')+(q.skillLabel||TOPICNAMES[q.topic]||'Math');
   $('qcard').innerHTML=q.qHTML;
   $('qcard').style.animation='none'; void $('qcard').offsetWidth; $('qcard').style.animation='';
   const hb=$('btnHint'); hb.className='hintBtn';
@@ -2255,6 +2293,7 @@ function renderQuestion(forcedQ){
 }
 function renderPowerTray(){
   const tray=$('powerTray'); tray.innerHTML='';
+  if(S.current&&S.current.serverQuestion) return;
   if(S.inventory.fiftyfifty>0){
     const b=document.createElement('button');
     b.className='powBtn'+(S.fiftyUsed?' spent':'');
@@ -2264,6 +2303,7 @@ function renderPowerTray(){
   }
 }
 function useFiftyFifty(){
+  if(S.current&&S.current.serverQuestion) return;
   if(S.answered || S.fiftyUsed || S.inventory.fiftyfifty<=0) return;
   S.inventory.fiftyfifty--; S.fiftyUsed=true; sClick();
   const btns=[...document.querySelectorAll('.ans')];
@@ -2275,6 +2315,9 @@ $('btnHint').onclick=()=>{
   if(S.answered || S.hintUsed) return;
   S.hintUsed=true; sClick();
   const q=S.current;
+  if(q&&q.serverQuestion&&SYNC.online){
+    apiPost({action:'practice_hint',name:SYNC.name,pin:SYNC.pin,helpType:'hint'}).catch(()=>{});
+  }
   // a Free Hint token removes the skill penalty
   if(S.inventory.freehint>0){ S.inventory.freehint--; S.hintFree=true; }
   const label=S.hintFree ? '<b>🥷 FREE NINJA TRICK:</b> ' : '<b>🥷 NINJA TRICK:</b> ';
@@ -2289,6 +2332,7 @@ $('btnHint').onclick=()=>{
 // the "I need help" option only appears once he has genuinely tried (a wrong or a hint),
 // and never on the boss or the practice-variant
 function maybeShowNeedHelp(){
+  if(S.current&&S.current.serverQuestion) return;
   if(!S.isVariant && !S.bossMode && !S.answered) $('btnNeedHelp').classList.remove('hidden');
 }
 $('btnNeedHelp').onclick=()=>{
@@ -2484,9 +2528,96 @@ $('btnTutorGo').onclick=()=>{
   freshQuestion(S.current.topic);
 };
 
+async function serverPracticeAnswer(i,btn){
+  if(S.answered) return;
+  const q=S.current;
+  const rect=btn.getBoundingClientRect();
+  const cx=rect.left+rect.width/2, cy=rect.top+rect.height/2;
+  S.lastHitXY={x:cx, y:cy};
+  S.answered=true;
+  document.querySelectorAll('.ans').forEach(b=>b.disabled=true);
+  $('btnHint').classList.add('hidden'); $('powerTray').innerHTML=''; $('btnNeedHelp').classList.add('hidden');
+  btn.classList.add('waiting');
+  const beforeCoins=S.coins;
+  try{
+    const choice=q.choices[i];
+    const r=await apiPost({
+      action:'practice_answer',
+      name:SYNC.name,
+      pin:SYNC.pin,
+      localDate:clientLocalDate(),
+      questionId:q.id,
+      choiceId:choice&&choice.id,
+      responseMs:Math.floor(performance.now()-S.qStart)
+    });
+    btn.classList.remove('waiting');
+    if(!(r.data&&r.data.ok)){
+      $('tipbar').innerHTML='<b>That question expired.</b> Loading a fresh one.';
+      $('tipbar').classList.add('on');
+      setTimeout(nextQuestion,900);
+      return;
+    }
+    const ok=!!r.data.correct;
+    if(r.data.data) applySave(r.data.data);
+    if(r.data.cosmetics){ applyCosmeticsSummary(r.data.cosmetics); showCosmeticUnlocks(r.data.cosmetics.recentUnlocks||[]); }
+    const coinDelta=Math.max(0,S.coins-beforeCoins);
+    if(coinDelta>0){ S.runCoins+=coinDelta; updateCoinCounters(); coinFly(coinDelta,cx,cy); }
+    if(r.data.coins&&r.data.coins.dailyBonus) comboFlash('DAILY BONUS +'+r.data.coins.dailyBonus+'!');
+    const t=q.topic||'mix';
+    S.byTopic[t]=S.byTopic[t]||{ok:0,n:0};
+    S.byTopic[t].n++;
+    if(ok){
+      S.byTopic[t].ok++;
+      S.streak++;
+      S.bestStreak=Math.max(S.bestStreak,S.streak);
+      if(S.mode==='story' && !S.bossMode){
+        if(q.wbId) S.progress.solved[q.wbId]=1;
+        S.levelPos++; S.runAnswered++; if(!S.hintUsed) S.runFirst++;
+      } else {
+        S.solved++; S.correctCount++; S.runAnswered++; if(!S.hintUsed) S.runFirst++;
+      }
+      const tier=tierNow();
+      const mult=Math.min(5, 1+Math.floor(S.streak/3));
+      const pts=10*tier*mult;
+      S.score+=pts;
+      gainXP(5*tier);
+      btn.classList.add('right');
+      burst(cx,cy,['#4ade80','#ffb020','#22d3ee','#fff'],20);
+      floatScore('+'+pts,cx,cy);
+      sCorrect(S.streak||1);
+      if(S.streak>0 && S.streak%3===0) comboFlash('COMBO x'+mult+'!');
+      updateHUD();
+      scheduleSave();
+      if(foeStrike()) foeDie(spawnMonster);
+      const checkpoint = S.mode==='story' && S.levelPos>0 && S.levelPos<S.levelLen && S.levelPos%4===0;
+      if(S.mode==='arena' && S.solved>=MISSION_TARGET) setTimeout(endRun,1300);
+      else if(checkpoint) setTimeout(()=>showJourney(nextQuestion,3000),800);
+      else setTimeout(nextQuestion,950);
+    } else {
+      S.streak=0; S.qWrongs++; S.chainWrongs++;
+      btn.classList.add('wrong');
+      sWrong();
+      $('tipbar').classList.remove('trick');
+      $('tipbar').innerHTML='<b>Good try'+(S.name?', '+S.name:'')+'.</b> The next one will help build the same skill.';
+      $('tipbar').classList.add('on');
+      updateHUD();
+      scheduleSave();
+      setTimeout(nextQuestion,1400);
+    }
+  }catch(e){
+    btn.classList.remove('waiting');
+    S.answered=false;
+    document.querySelectorAll('.ans').forEach(b=>b.disabled=false);
+    $('btnHint').classList.remove('hidden');
+    $('tipbar').innerHTML='<b>Connection hiccup.</b> Try that answer again.';
+    $('tipbar').classList.add('on');
+  }
+}
+
 function answer(i,btn){
   if(S.answered) return;
   const q=S.current;
+  if(q&&q.serverQuestion&&SYNC.online){ serverPracticeAnswer(i,btn); return; }
   const ok=q.choices[i].ok;
   const rect=btn.getBoundingClientRect();
   const cx=rect.left+rect.width/2, cy=rect.top+rect.height/2;

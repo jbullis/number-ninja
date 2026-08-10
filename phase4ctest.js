@@ -23,6 +23,11 @@ async function savePractice(name, solved, wrongs){
 async function earn(name, eventId, reason, extra){
   return call(Object.assign({action:"coin_earn", name, pin:"1234", localDate:"2026-08-08", eventId, reason}, extra || {}));
 }
+async function earnPractice(name){
+  await call({action:"practice_start", name, pin:"1234", localDate:"2026-08-08", mode:"arena", skillId:"4.multiMultiply"});
+  const q = recFor(name).controls.practice.pendingQuestion;
+  return call({action:"practice_answer", name, pin:"1234", localDate:"2026-08-08", questionId:q.id, choiceId:q.correctChoiceId});
+}
 async function setupAssignment(prefix, assignment){
   await call({action:"register_parent", name:prefix+"Parent", pin:"2222"});
   await call({action:"register_student", name:prefix+"Kid", pin:"1234", grade:"4"});
@@ -38,22 +43,18 @@ function right(name, id){ return pending(name, id).correctChoiceId; }
   const kid = await setupStudent("Phase4CKid");
 
   r = await earn(kid, "no-evidence", "practice_correct");
-  ck(r.status === 400 && r.body.error === "practice_evidence_required", "free-play reward needs saved practice evidence");
-  await savePractice(kid, 1, 0);
-  r = await earn(kid, "practice-1", "practice_correct", {tier:99, boosted:true});
-  ck(r.status === 200 && r.body.awarded === 3 && r.body.coins === 3, "practice reward is fixed and ignores tier/boost");
-  r = await earn(kid, "practice-2", "practice_correct");
-  ck(r.status === 400 && r.body.error === "practice_evidence_required", "unique event IDs alone cannot farm practice rewards");
-  await savePractice(kid, 2, 0);
-  r = await earn(kid, "practice-2", "practice_correct");
-  ck(r.status === 200 && r.body.awarded === 3 && r.body.coins === 6, "new saved progress can earn next practice reward");
-  r = await earn(kid, "practice-2", "practice_correct");
-  ck(r.status === 200 && r.body.duplicate && r.body.coins === 6, "duplicate practice reward safe");
+  ck(r.status === 400 && r.body.error === "practice_coin_earn_deprecated", "old free-play reward endpoint is deprecated");
+  r = await earnPractice(kid);
+  ck(r.status === 200 && r.body.coins.awarded === 13 && recFor(kid).data.coins === 13, "server-scored practice reward pays fixed amount plus daily bonus");
+  r = await call({action:"practice_answer", name:kid, pin:"1234", localDate:"2026-08-08", questionId:"replay", choiceId:"x"});
+  ck(r.status === 400 && r.body.error === "question_required", "unique event IDs alone cannot farm practice rewards");
+  r = await earnPractice(kid);
+  ck(r.status === 200 && r.body.coins.awarded === 3 && recFor(kid).data.coins === 16, "next legitimate practice answer earns next reward");
 
   r = await earn(kid, "daily-1", "daily_bonus");
-  ck(r.status === 200 && r.body.awarded === 10 && r.body.coins === 16, "daily bonus pays once after activity");
+  ck(r.status === 400 && r.body.error === "daily_bonus_automatic", "daily bonus no longer pays through claim endpoint");
   r = await earn(kid, "daily-2", "daily_bonus");
-  ck(r.status === 200 && r.body.duplicate && r.body.coins === 16, "daily bonus cannot be repeated with another event");
+  ck(r.status === 400 && r.body.error === "daily_bonus_automatic", "daily bonus cannot be repeated with another event");
 
   r = await call({action:"save", name:kid, pin:"1234", data:{coins:999, progress:{topics:{"4.multiMultiply":{solved:2,first:2,wrongs:0,tutors:0}}, story:{C9:{stars:3}}}}});
   ck(r.status === 200 && r.body.data.coins === 16, "general save still cannot mint coins");
@@ -79,7 +80,7 @@ function right(name, id){ return pending(name, id).correctChoiceId; }
   const assignmentCoins = recFor(a.kid).data.coins;
   ck(r.status === 200 && r.body.completed && assignmentCoins === r.body.rewardCoins, "assignment completion pays once");
   r = await earn(a.kid, "assignment-stack", "practice_correct");
-  ck(r.status === 400 && r.body.error === "practice_evidence_required", "assignment answer does not double-pay normal practice coins");
+  ck(r.status === 400 && r.body.error === "practice_coin_earn_deprecated", "assignment answer does not double-pay normal practice coins");
   r = await call({action:"assignment_start", name:a.kid, pin:"1234", assignmentId:a.assignmentId, localDate:"2026-08-07"});
   ck(recFor(a.kid).data.coins === assignmentCoins, "completed assignment cannot replay reward");
 

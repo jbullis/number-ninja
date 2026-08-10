@@ -27,7 +27,9 @@ function addTopic(data, skillId, mastery, solved, first, wrongs){
 }
 async function makeStudent(name, data, grade){
   await call({ action:"register_student", name, pin:"1234", grade:grade || "4" });
-  await call({ action:"save", name, pin:"1234", data });
+  const rec = recFor(name);
+  rec.data = data;
+  writeRec(name, rec);
 }
 async function answerAll(name, kind, correctPattern){
   let p = pending(name, kind), last;

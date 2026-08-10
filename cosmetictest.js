@@ -9,6 +9,11 @@ const KV = { store:new Map(), async get(k){ return this.store.has(k) ? this.stor
 async function call(body){ const r = await api.playerPost({ json:async()=>body }, { store:KV }); return { status:r.status, body:await r.json() }; }
 function recFor(name){ return JSON.parse(KV.store.get("player:" + name.toLowerCase())); }
 function writeRec(name, rec){ KV.store.set("player:" + name.toLowerCase(), JSON.stringify(rec)); }
+async function earnPractice(name){
+  await call({action:"practice_start", name, pin:"1234", localDate:"2026-08-08", mode:"arena", skillId:"4.multiMultiply"});
+  const q = recFor(name).controls.practice.pendingQuestion;
+  return call({action:"practice_answer", name, pin:"1234", localDate:"2026-08-08", questionId:q.id, choiceId:q.correctChoiceId});
+}
 
 const ids = Cosmetics.CATALOG.map(c => c.id);
 ck(new Set(ids).size === ids.length, "catalog IDs unique");
@@ -75,19 +80,17 @@ ck(controls.cosmetics.equipped.avatar === "e:Ninja" && controls.cosmetics.equipp
 (async()=>{
   let r;
   await call({action:"register_student", name:"CosKid", pin:"1234", grade:"4"});
-  for(let i=1;i<=20;i++){
-    await call({action:"save", name:"CosKid", pin:"1234", data:{coins:recFor("CosKid").data && recFor("CosKid").data.coins || 0, stats:{totalCorrect:i}, progress:{topics:{"4.multiMultiply":{solved:i, first:i, wrongs:0, tutors:0}},mastery:{}}}});
-    r = await call({action:"coin_earn", name:"CosKid", pin:"1234", localDate:"2026-08-08", eventId:"cos-earn-"+i, reason:"practice_correct"});
-  }
-  ck(r.status === 200 && r.body.coins === 60, "server practice rewards create cosmetic spending balance");
-  r = await call({action:"save", name:"CosKid", pin:"1234", data:{coins:60, progress:{topics:{"4.multiMultiply":{solved:20, first:20, wrongs:0, tutors:0}},mastery:{}}, owned:["e:Wizard"], ownedEffects:["rainbow"], skin:"e:Wizard", effect:"rainbow", inventory:{freehint:2}}});
-  ck(r.status === 200 && r.body.data.coins === 60, "same-balance legacy save preserved");
+  for(let i=1;i<=17;i++) r = await earnPractice("CosKid");
+  ck(r.status === 200 && r.body.coins.coins >= 60, "server practice rewards create cosmetic spending balance");
+  const earnedCoins = recFor("CosKid").data.coins;
+  r = await call({action:"save", name:"CosKid", pin:"1234", data:{coins:earnedCoins, progress:recFor("CosKid").data.progress, owned:["e:Wizard"], ownedEffects:["rainbow"], skin:"e:Wizard", effect:"rainbow", inventory:{freehint:2}}});
+  ck(r.status === 200 && r.body.data.coins === earnedCoins, "same-balance legacy save preserved");
   ck(!r.body.cosmetics.items.find(i=>i.id==="e:Wizard").owned, "fake ownership save cannot grant catalog cosmetics");
   ck(r.body.data.inventory.freehint === 0, "forged legacy power inventory increase without spending is blocked");
   r = await call({action:"cosmetic_purchase", name:"CosKid", pin:"1234", cosmeticId:"glow", requestId:"buy1", priceCoins:-100});
   ck(r.status === 400 && r.body.error === "client_catalog_not_allowed", "client supplied price rejected");
   r = await call({action:"cosmetic_purchase", name:"CosKid", pin:"1234", cosmeticId:"glow", requestId:"buy2"});
-  ck(r.status === 200 && r.body.coins === 20 && r.body.cosmetics.items.find(i=>i.id==="glow").owned, "purchase API grants ownership and deducts coins");
+  ck(r.status === 200 && r.body.coins === earnedCoins - 40 && r.body.cosmetics.items.find(i=>i.id==="glow").owned, "purchase API grants ownership and deducts coins");
   r = await call({action:"cosmetic_purchase", name:"CosKid", pin:"1234", cosmeticId:"sparkle", requestId:"buy3"});
   ck(r.status === 409 && r.body.error === "insufficient_coins", "purchase with insufficient canonical coins rejected");
   r = await call({action:"cosmetic_equip", name:"CosKid", pin:"1234", cosmeticId:"glow", slot:"aura"});

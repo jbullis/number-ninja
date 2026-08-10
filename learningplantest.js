@@ -115,13 +115,16 @@ ck(active(controls.learningPlan, "remediation").length <= LP.LIMITS.maxActiveRem
 const KV = { store:new Map(), async get(k){ return this.store.has(k) ? this.store.get(k) : null; }, async set(k,v){ this.store.set(k,v); }, async delete(k){ this.store.delete(k); } };
 async function call(body){ const r = await api.playerPost({ json:async()=>body }, { store:KV }); return { status:r.status, body:await r.json() }; }
 function recFor(name){ return JSON.parse(KV.store.get("player:" + name.toLowerCase())); }
+function writeRec(name, rec){ KV.store.set("player:" + name.toLowerCase(), JSON.stringify(rec)); }
 (async()=>{
   await call({action:"register_parent", name:"LPParent", pin:"2222"});
   await call({action:"register_student", name:"LPKid", pin:"1234", grade:"4"});
   await call({action:"link_child", parentName:"LPParent", parentPin:"2222", childName:"LPKid", childPin:"1234"});
   let save = recFor("LPKid").data || {};
   save.progress = { mastery:{ "4.multiMultiply":20 }, topics:{ "4.multiMultiply":topic(2,5) } };
-  await call({action:"save", name:"LPKid", pin:"1234", data:save});
+  let lprec = recFor("LPKid");
+  lprec.data = save;
+  writeRec("LPKid", lprec);
   let r = await call({action:"report", name:"LPKid", pin:"1234", localDate:"2026-08-08"});
   ck(r.body.learningPlan.items.some(x=>x.status==="active"&&x.type==="remediation"), "student report returns persistent learning plan");
   r = await call({action:"update_child_controls", parentName:"LPParent", parentPin:"2222", childName:"LPKid", controls:{ learningPlan:{items:[]} }, localDate:"2026-08-08"});
