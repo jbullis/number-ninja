@@ -1,7 +1,8 @@
 # Architecture
 
-The whole game is one file, `index.html`. It holds the markup, all CSS, and all
-JavaScript. This document maps the pieces so a new reader can find things fast.
+The student game is centered on `index.html`, with K-5 modules in `js/` and
+server-authoritative account/practice logic in `api/` + `lib/`. This document maps
+the pieces so a new reader can find things fast.
 
 ## Big picture
 
@@ -9,14 +10,22 @@ JavaScript. This document maps the pieces so a new reader can find things fast.
             │
             └── /api/admin (token-gated stats) ──▶  same Redis database, read-only
 
-There is no client framework and no build. State lives in a single `S` object in
-memory, is serialized to Redis on save, and is restored on login.
+There is no client framework and no build. Presentation state lives in a single
+`S` object in memory. Academic, currency, assignment, mastery, and activity state
+is merged server-side before being persisted to Redis.
 
 ## Question generators
 
-Everything a kid answers is produced by pure functions, so it is testable in Node
-with no DOM. They live inside a block marked `// ===PURE===` ... `// ===ENDPURE===`
-in `index.html`. `wbtest.js` evaluates exactly that block.
+Ordinary cloud practice, placement, mastery, and assignment questions are issued
+by server APIs. The browser receives sanitized `qHTML` and choices without the
+answer key, then submits `questionId + choiceId`; the server scores correctness.
+
+The Node-safe server generator is `lib/placement-question-generator.js`.
+`phase5cfinaltest.js` generates 100 samples for every K-5 skill.
+
+The original browser generators still exist inside a block marked
+`// ===PURE===` ... `// ===ENDPURE===` in `index.html` for legacy local/offline
+play and Workbook Quest compatibility. `wbtest.js` evaluates that block.
 
 - `genOps`, `genMachine`, `genEquation`, `genFraction`, `genFactor`, `genShape`,
   `genMultiply`, `genAngle`, `genCompare`, `genMix` each take a tier (1 to 4) and
@@ -35,12 +44,13 @@ every answer from its check expression to guarantee correctness.
 
 ## State and saving
 
-- `S` is the single runtime state object: coins, xp, level, skin, inventory,
-  effects, and `S.progress` (topics, mastery, solved ids, story stars, need-help
-  list, arena resume point).
-- `packSave()` serializes the durable parts; `applySave()` restores them and
-  migrates older shapes.
-- `SYNC` debounces writes to `/api/player`. `navigator.sendBeacon` flushes on unload.
+- `S` is the single runtime presentation object: xp, level, skin display,
+  inventory display, effects, solved ids, story stars, need-help list, and arena
+  resume point.
+- `packSave()` serializes client-owned compatibility fields; the API preserves
+  server-owned coins, mastery, topic counters, achievements, cosmetics, and
+  activity history.
+- `SYNC` debounces compatibility saves to `/api/player`.
 - "Remember me" keeps the name and PIN in localStorage so a refresh does not log out.
 
 ## Belts (mastery)
@@ -88,15 +98,22 @@ A self-contained Canvas 2D dot-muncher (`FP` object, `fp*` functions) bought as 
 power-up. Pure arcade, no math. Lattice maze with guaranteed connectivity, greedy
 ghosts, lives, score, D-pad and arrow keys.
 
-## Save server (api/player.js)
+## API (api/player.js)
 
 POST actions:
 
-- `login`: loads or first-time-claims a player (name + PIN).
-- `save`: writes progress (size-capped).
-- `report`: read-only load for the parent view, never creates an account.
+- account actions: register/login/report/save, parent child management.
+- practice actions: `practice_start`, `practice_hint`, `practice_answer`.
+- placement/mastery/assignment actions: server-issued question flows.
+- daily, recommendation, achievement, cosmetic, activity, and report actions.
 
 PINs are salted and SHA-256 hashed; compares are constant-time-ish.
+
+Activity detail is stored outside the main player record:
+
+- `player:<name>:activity` stores permanent daily/skill summaries and metadata.
+- `player:<name>:activity:YYYY-MM` stores retained detailed attempts.
+- Detailed attempts are retained for 90 days by lazy pruning.
 
 ## Admin (api/admin.js + admin.html)
 
