@@ -1712,6 +1712,12 @@ async function apiPost(payload){
   let data={}; try{ data=await res.json(); }catch(e){}
   return { status:res.status, data };
 }
+function loginErrorMessage(error,status){
+  if(error==='server_not_configured') return 'The game server is not configured yet.';
+  if(error==='storage_unavailable') return 'The game server could not connect to storage. Please try again.';
+  if(status===401 && error && error.message==='Protected deployment') return 'This preview is locked. Ask an adult for access.';
+  return 'Could not sign in. Check your connection and try again.';
+}
 async function cloudLogin(name, pin){
   try{
     const r=await apiPost({ action:'login', name, pin });
@@ -3270,7 +3276,7 @@ async function doLogin(){
       if(r.data && r.data.ok){ renderParent(name, r.data.data); show('parent'); return; }
       if(r.data && r.data.error==='no_such_player'){ showLoginError('No ninja with that name yet.'); return; }
       if(r.data && r.data.error==='wrong_pin'){ showLoginError('That PIN does not match this ninja.'); return; }
-      showLoginError('Could not load the report. Try again.');
+      showLoginError(loginErrorMessage(r.data&&r.data.error,r.status));
     }catch(e){
       btn.disabled=false; btn.textContent=keep;
       showLoginError('Reports need an internet connection.');
@@ -3282,7 +3288,7 @@ async function doLogin(){
   btn.disabled=false; btn.textContent=keep;
   if(!r.ok){
     if(r.error==='wrong_pin') showLoginError('That name is taken and the PIN is wrong. Try again or pick a new name.');
-    else showLoginError('Could not sign in. Check your connection and try again.');
+    else showLoginError(loginErrorMessage(r.error,r.status));
     return;
   }
   S.name=name;
